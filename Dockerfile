@@ -1,4 +1,4 @@
-FROM ubuntu:16.04
+FROM ubuntu:18.04
 
 # File Author / Maintainer MAINTAINER
 MAINTAINER Natacha Beck <natabeck@gmail.com>
@@ -14,19 +14,22 @@ RUN apt-get install -y git \
                        expat \
                        libexpat-dev \
                        cpanminus \
-                       wget\
-                       libglib2.0-dev\
-                       automake\
-                       autotools-dev
+                       wget \
+                       libgd-dev \
+                       automake \
+                       autotools-dev \
+                       libxml-dom-xpath-perl
 
 
 ############################
 # Install perl dependency  #
 ############################
+RUN cpanm XML::DOM
+RUN cpanm XML::DOM::XPath
 RUN cpanm LWP::UserAgent.pm
 RUN cpanm Bio::AlignIO
 
-############################
+###########################
 # Install external progam  #
 ############################
 # Create a directory for all git directories
@@ -39,6 +42,7 @@ RUN apt-get install -y ncbi-blast+
 RUN apt-get install -y hmmer
 
 # Install Exonerate
+RUN apt-get install -y libglib2.0-dev
 RUN cd git_repositories
 RUN git clone https://github.com/nathanweeks/exonerate.git; cd exonerate; git checkout v2.4.0; ./configure; make; make check;autoreconf -f -i; make install
 RUN cd ..
@@ -102,7 +106,7 @@ RUN mkdir BLASTMAT; cd BLASTMAT; wget  ftp://ftp.ncbi.nlm.nih.gov/blast/matrices
 RUN cp ~/.RNAfinder.cfg /
 
 #mv PirModels 
-RUN mv /root/PirModels / 
+RUN mv /root/PirModels /
 
 ####################
 # Set ENV variable #
