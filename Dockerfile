@@ -91,7 +91,7 @@ RUN git clone https://github.com/BFL-lab/mf2sqn.git; cp mf2sqn/mf2sqn /usr/local
 RUN git clone https://github.com/BFL-lab/grab-fasta.git; cp grab-fasta/grab-fasta /usr/local/bin/;cp grab-fasta/grab-seq /usr/local/bin/
 
 # Install MFannot
-RUN git clone https://github.com/natacha-beck/mfannot.git; git checkout mini_exons; cp mfannot/mfannot /usr/local/bin/;cp -r mfannot/examples /
+RUN git clone https://github.com/natacha-beck/mfannot.git; cd /mfannot/; git checkout mini_exons; cd /; cp mfannot/mfannot /usr/local/bin/;cp -r mfannot/examples /
 
 ################
 # Install data #
