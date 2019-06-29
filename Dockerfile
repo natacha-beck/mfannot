@@ -18,7 +18,8 @@ RUN apt-get install -y git \
                        libgd-dev \
                        automake \
                        autotools-dev \
-                       libxml-dom-xpath-perl
+                       libxml-dom-xpath-perl \
+                       libidn11
 
 
 ############################
