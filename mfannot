@@ -1355,7 +1355,7 @@ sub SelectProteinForExo {
 
                 @start_end_orf  = sort { $a->[0] <=> $b->[0] } @start_end_orf if $strand ==  1; # Sort @start_end_orf by start for strand +
                 @start_end_orf  = sort { $b->[0] <=> $a->[0] } @start_end_orf if $strand == -1; # Sort @start_end_orf by start for strand -
-
+ 
                 for (my $i=0; $i < @start_end_orf - 1; $i++) {
                     my $diff = abs($start_end_orf[$i]->[1]-$start_end_orf[$i+1]->[0]);
                     if ( 142 <= $diff ) {
@@ -1587,7 +1587,6 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
             my $info_gene_fusion = new PirObject::HypFusion ( name => $namefusiongene );
             $newhypprot->set_hypfusiongene($info_gene_fusion);
         }
-        # XXXX
         &AdjustStartByHMM($newhypprot, $seq, $contigname);
         push (@$HYPPROTS,  $newhypprot);
     } # End for each Flip Blast Prot
@@ -1611,16 +1610,15 @@ sub AdjustStartByHMM {
     my $idByExo     = $hypprot->get_idbyexo() ? 1 : 0;
 
     # Def this_prot
-    my $prot            = $hypprot->get_name();
-    my $this_prot       = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
-    my $pb              = "";
-       ($this_prot,$pb) = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
+    my $prot      = $hypprot->get_name();
+    my $this_prot = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
+       $this_prot = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
     $hypprot->set_thisprot($this_prot);
 
     if ($this_prot eq "Frame-Shift-Detected") {
         $hypprot->set_startwarning("Aproximate start");
         &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
-        return $pb eq "dna_length" ? "Frame-Shift-Detected-Length" : "Frame-Shift-Detected";
+        return "Frame-Shift-Detected";
     }
 
     # Def Full5
@@ -3163,10 +3161,10 @@ sub AnnotateMiniExonsByHMM {
             if ($MakeAli == 1) {
                 # Make Ali with HMMalign, remake ali if exon was add
                 ($Align,$PP,$PercentId,$AliSeq,$protaln) = &CreateAlignForMiniEx($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange);
+                next if $Align eq "Frame-Shift-Detected";
+                
                 # To redefine get_trimIndex
                 &DefEachStartInHMM(&ReadStockholmMultAligns($protaln),$hypprot);
-                
-                next if $Align eq "Frame-Shift-Detected";
                 $MakeAli = 0;
             }
 
@@ -3259,7 +3257,7 @@ sub CreateAlignForMiniEx {
     my ($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange) = @_;
 
     my $ProtSeq = &GetProteinSequenceAndIntronsPos($Exons,$Introns,$Seq,$hypprot);
-    return "Frame-Shift-Detected"  if $ProtSeq eq "Frame-Shift-Detected";
+    return "Frame-Shift-Detected" if $ProtSeq eq "Frame-Shift-Detected";
     $ProtSeq    = substr($ProtSeq, 0, -1);
     # $ProtSeq    =~ s/\*/n/g;
 
