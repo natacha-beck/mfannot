@@ -71,7 +71,7 @@ RUN cd git_repositories
 RUN git clone https://github.com/prioux/PirObject.git; cp PirObject/lib/PirObject.pm /etc/perl/;
 
 # Install all PirModels
-RUN git clone https://github.com/BFL-lab/PirModels.git; cd /PirModels/; git checkout mini_exons; cd /;  mv PirModels /root/
+RUN git clone https://github.com/natacha-beck/PirModels.git; cd /PirModels/; git checkout mini_exons; cd /;  mv PirModels /root/
 
 # Install flip
 RUN git clone https://github.com/BFL-lab/flip.git; cd flip/src/; gcc -o /usr/local/bin/flip flip.c;
