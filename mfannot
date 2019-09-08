@@ -80,7 +80,9 @@ BEGIN {
 umask 027;
 
 # Program's name and version number.
-our $VERSION   = "1.35";
+our $VERSION    = `git tag | head -n 1`;
+$VERSION        =~ s/^\s+|\s+$//g;
+our $COMMIT     = `git log | head -n 1`;
 our ($BASENAME) = ($0 =~ /([^\/]+)$/);
 our $MAINPROGRAM_PID = $$;
 
@@ -252,6 +254,7 @@ my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAM                         \n".
              "VERSION $VERSION                                                      \n".
+             "$COMMIT                                                              \n".
              "Programmed by N. Beck and P. Rioux                                    \n".
              "######################################################################\n\n";
 
