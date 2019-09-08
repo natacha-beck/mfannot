@@ -83,6 +83,8 @@ umask 027;
 our $VERSION    = `git tag | head -n 1`;
 $VERSION        =~ s/^\s+|\s+$//g;
 our $COMMIT     = `git log | head -n 1`;
+our $PIR_COMMIT = `cd $ENV{'PIR_DATAMODEL_PATH'}; git log | head -1 ; cd - > /dev/null 2>&1 `;
+    $PIR_COMMIT = $PIR_COMMIT =~ /commit/ ? $PIR_COMMIT : "unknown";
 our ($BASENAME) = ($0 =~ /([^\/]+)$/);
 our $MAINPROGRAM_PID = $$;
 
@@ -254,7 +256,8 @@ my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAM                         \n".
              "VERSION $VERSION                                                      \n".
-             "$COMMIT                                                              \n".
+             "$COMMIT                                                               \n".
+             "PirModel: $PIR_COMMIT                                                 \n".
              "Programmed by N. Beck and P. Rioux                                    \n".
              "######################################################################\n\n";
 
