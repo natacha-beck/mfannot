@@ -137,6 +137,7 @@ my $LIGHT;                                      # Don't run endonuclease search 
 my $USEPRM;                                     # Set to 1 if user want to use .prm file
 my $JUST_SIMI;                                  # An array containing names of gene to annotate by HMM similarity
 my $SQN_FORMAT;                                 # Boolean if set does the converstion mf -> sqn
+my $TBL_FORMAT;                                 # Boolean if set save tbl output
 
 # Command line Program's paths
 my $PATH = $ENV{"PATH"} || "";
@@ -470,7 +471,7 @@ undef $EMPTYORFS;
 print "Writing new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
-&CreateTBLoutput($OUTPUTFILE) if $SQN_FORMAT;
+&CreateTBLoutput($OUTPUTFILE) if $SQN_FORMAT || $TBL_FORMAT;
 
 if (0) {
 print "Writing PirMaster object to $OUTPUTFILE.xml\n";
@@ -611,6 +612,7 @@ sub GetOptions {
     $INSERTION               = $option->insertion;         # Minimum length for report insertion
     $LIGHT                   = $option->light;             # Don't search for endonuclease and don't search all gene by HMM
     $SQN_FORMAT              = $option->sqnformat;         # If true do mf -> sqn conversion
+    $TBL_FORMAT              = $option->tblformat;         # If true save tbl file
     $TMPDIR                  = $option->tmpdir;            # Temporary work directory
     $USEPRM                  = $option->prm;               # 1 if user want use .prm
     $JUST_SIMI               = ["dpo","rpo"];              # XXXX Need to be an option
@@ -8766,10 +8768,22 @@ sub CreateTBLoutput {
 	system("cat",$mf2sqnErr);
     }
 
-    if (-e "$initial_dir/$basename.sqn") {
-      print "Cannot copy $basename.sqn the file already exist";
-    } else {
-       system("cp $basename.sqn $initial_dir/");
+    if ($SQN_FORMAT) {
+        if (-e "$initial_dir/$basename.sqn") {
+          print "Cannot copy $basename.sqn the file already exist";
+        } else {
+           system("cp $basename.sqn $initial_dir/");
+           print "Writing new sqn file in $basename.sqn\n";
+        }
+    }
+
+    if ($TBL_FORMAT) {
+        if (-e "$initial_dir/$basename.tbl") {
+          print "Cannot copy $basename.tbl the file already exist";
+        } else {
+           system("cp $basename.tbl $initial_dir/");
+           print "Writing new tbl file in $basename.tbl\n";
+        }
     }
 
     chdir("$initial_dir");
