@@ -56,6 +56,7 @@ use Bio::Tools::CodonTable;                           # To create a codon table,
 use Bio::Matrix::IO;                                  # Used for read matrix like PAM
 use List::Util qw(min max);
 use Sys::Hostname;
+use FindBin;
 
 sub info;
 
@@ -80,11 +81,38 @@ BEGIN {
 umask 027;
 
 # Program's name and version number.
-our $VERSION    = `git tag | head -n 1`;
-$VERSION        =~ s/^\s+|\s+$//g;
-our $COMMIT     = `git log | head -n 1`;
-our $PIR_COMMIT = `cd $ENV{'PIR_DATAMODEL_PATH'}; git log | head -1 ; cd - > /dev/null 2>&1 `;
-    $PIR_COMMIT = $PIR_COMMIT =~ /commit/ ? $PIR_COMMIT : "unknown";
+our $VERSION    = "Unknown";
+my $MFANNOT_PATH = $FindBin::Bin;
+my $resultat    = system("git -C $MFANNOT_PATH tag > /dev/null 2>&1");
+my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+my $returncode  = $resultat >> 8;   # exit status of subprogram
+if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
+    $VERSION =  `git -C $MFANNOT_PATH tag | head -1`;
+    chomp($VERSION);
+}
+
+our $COMMIT  = "commit Unknown";
+$resultat    = system("git -C $MFANNOT_PATH log > /dev/null 2>&1");
+$hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+$signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+$returncode  = $resultat >> 8;   # exit status of subprogram
+if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
+    $COMMIT =  `git -C $MFANNOT_PATH log | head -n 1`;
+    chomp($COMMIT);
+}
+
+our $PIR_COMMIT = "Unknown";
+$resultat     = system("git -C  $ENV{'PIR_DATAMODEL_PATH'} log > /dev/null 2>&1");
+$hascoredump  = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+$signal       = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+$returncode   = $resultat >> 8;   # exit status of subprogram
+if (!($returncode > 1 || $signal > 0 || $hascoredump == 1)) {
+    $PIR_COMMIT =  `git -C $ENV{'PIR_DATAMODEL_PATH'} log | head -1`;
+    chomp($PIR_COMMIT);
+}
+
+
 our ($BASENAME) = ($0 =~ /([^\/]+)$/);
 our $MAINPROGRAM_PID = $$;
 
@@ -255,9 +283,11 @@ my $LOG_F = new IO::File ">$LOG_FILE" if $ISLOGFILE;
 my $header = "\n".
              "######################################################################\n".
              "MFANNOT, ORGANELLAR GENOME ANNOTATION PROGRAM                         \n".
-             "VERSION $VERSION                                                      \n".
-             "$COMMIT                                                               \n".
+             "\n".
+             "MFANNOT:  version $VERSION                                             \n".
+             "MFANNOT:  $COMMIT                                                      \n".
              "PirModel: $PIR_COMMIT                                                 \n".
+             "\n".
              "Programmed by N. Beck and P. Rioux                                    \n".
              "######################################################################\n\n";
 
