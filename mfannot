@@ -5521,7 +5521,7 @@ sub AnnotateFromExternalAPC {
                ($IsInAP,$ContainAP)  = &IsInOrContainAP($annot_who_overlap,$AP_start,$AP_stop) if $type ne "AC";
             if ((scalar(@$ContainAP) !=  0 || scalar(@$IsInAP) != 0) &&  $start_line !~ m/group=/) {
                my $idByHMMdef  = !$annot->get_idbyHMM() ? 0 : 1;
-               $start_line    .= $idByHMMdef && $annot->get_idbyHMM() == 1 ? " ;; mfannot: score : $score" :" ;; mfannot: evalue : $score";
+               $start_line    .= " ;; mfannot: score : $score" if $idByHMMdef && $annot->get_idbyHMM() == 1;
             }
 
             $annot->set_type($type);
