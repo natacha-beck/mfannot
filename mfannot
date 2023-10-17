@@ -920,23 +920,6 @@ sub Remove_AP {
     }
 }
 
-sub CreateCgFile {
-    my $cg = shift;
-
-    my $dir = "$TMPDIR/CgFiles";
-    mkdir($dir) if !(-d $dir);
-
-    my $cg_name = $cg->get_name();
-    my $cg_seq  = $cg->get_sequence();
-    my $cg_file = "$dir/$cg_name";
-
-    my $cg_Fh = new IO::File ">$cg_file"
-        or die "Can't write to file '$cg_file': $!\n";
-    $cg_seq =~ s/\s+$/\n/;
-    print $cg_Fh ">$cg_name\n$cg_seq\n";
-    $cg_Fh->close();
-}
-
 sub DefineNumberOfProcessor {
     my $nb_proc = "$TMPDIR/nb_proc";
     system("grep processor /proc/cpuinfo > $nb_proc");
@@ -949,7 +932,6 @@ sub DefineNumberOfProcessor {
     }
     return $count_proc;
 }
-
 
 #-----------------------------------#
 # Subs forming the core of Mfannot  #
@@ -1691,12 +1673,16 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
                 }
             }
         }  # End for each ORF
+
         # Set hypfusiongene if it exists
         if ($namefusiongene) {
             my $info_gene_fusion = new PirObject::HypFusion ( name => $namefusiongene );
             $newhypprot->set_hypfusiongene($info_gene_fusion);
         }
+
         &AdjustStartByHMM($newhypprot, $seq, $contigname);
+
+        # If the protein was trimmed in 3' by more than 10 aa, we run exonerate
         if ($newhypprot->get_trimIndexThree && $newhypprot->get_trimIndexThree > 10) {
            my $info = [
                         $newhypprot->get_name(),
@@ -1715,6 +1701,8 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
     } # End for each Flip Blast Prot
 } # End sub
 
+# This function is used to adjust the start of the protein by using HMM
+# and homologous proteins
 sub AdjustStartByHMM {
     my ($hypprot,$seq,$contigname) = @_;
 
@@ -1732,104 +1720,137 @@ sub AdjustStartByHMM {
     my $WithIntrons = (scalar(@$exons) > 1 ? 1 : 0);
     my $idByExo     = $hypprot->get_idbyexo() ? 1 : 0;
 
-    # Def this_prot
-    my $prot      = $hypprot->get_name();
-    my $this_prot = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
-       $this_prot = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
-    $hypprot->set_thisprot($this_prot);
+    # Def protein sequence
+    my $prot             = $hypprot->get_name();
+    my $protein_sequence = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
+       $protein_sequence = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
+    $hypprot->set_thisprot($protein_sequence);
 
-    if ($this_prot eq "Frame-Shift-Detected") {
+    # If a frameshift is detected, we don't run HMM
+    if ($protein_sequence eq "Frame-Shift-Detected") {
         $hypprot->set_startwarning("Aproximate start");
         &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
         return "Frame-Shift-Detected";
     }
 
-    # Def Full5
-    my $full5 = &GetFull5($seq,$isMinus,$this_prot,$start);
+    # Define the full5 == 5'UTR + identified protein sequence
+    my $full5 = &GetFull5($seq,$isMinus,$protein_sequence,$start);
     $hypprot->set_full5($full5);
-    my $hyp_st_full5 = length($full5) - length($this_prot);
+    my $pos_hyp_start_in_full5 = length($full5) - length($protein_sequence);
 
     # Create Seq for HMM and run HMM
-    my ($this_fasta,$homo_fasta) = &ExtractLibSeqs($hypprot,$this_prot);
+    my ($this_fasta,$homo_fasta) = &ExtractLibSeqs($hypprot,$protein_sequence);
     my $flag     = $1 if  scalar($hypprot) =~ m/0x(.+)\)/;
     my $protaln  = &RunHMM($prot,$prot.$flag,$this_fasta,$homo_fasta,"_For_Start");
 
     # Read ali and def each start in homologous
-    my $ali        = &ReadStockholmMultAligns($protaln);
-    my $each_st    = &DefEachStartInHMM($ali,$hypprot);
-    my $hyp_st_ali = $each_st->{"myProt"};
-    delete $each_st->{"myProt"};
+    my $ali               = &ReadStockholmMultAligns($protaln);
+    my $each_start        = &DefEachStartInHMM($ali,$hypprot);
+    my $trim5             = $hypprot->get_trimIndexFive() || 0;
+
+    my $pos_hyp_start_ali = $each_start->{"myProt"};
+    # Remove myProt from each_start since we want to find
+    # the best start according to the homologous proteins
+    delete $each_start->{"myProt"};
 
     # Def lim of reasearch in Full5
-    my $st_pos_cmp_st_orf = {};
-    while (my ($id, $homo_st_ali) = each(%$each_st)) {
-        $st_pos_cmp_st_orf->{$id} = $hyp_st_full5 + ($homo_st_ali - $hyp_st_ali);
+    my $start_pos_cmp_start_orf = {};
+    while (my ($id, $start_pos_in_homologous) = each(%$each_start)) {
+        $start_pos_cmp_start_orf->{$id}       = $pos_hyp_start_in_full5 + ($start_pos_in_homologous - $pos_hyp_start_ali);
     }
-    my ($right_lim_for_st,$left_lim_for_st) = &DefMaxAndMinStartInAli($st_pos_cmp_st_orf);
+
+    # Define upper start in homologous protein == five_start_limit
+    # Define lower start in homologous protein == three_start_limit
+    my ($five_start_limit,$three_start_limit) = &DefFiveAndThreeStartInAli($start_pos_cmp_start_orf);
 
     # Def first exon if gene with intron(s).
+    # Create the full5 with the first exon only
     my $first_exon = undef;
     if ($WithIntrons) {
-           $first_exon      = $exons->[0];
-        my $end_first_exon  = $first_exon->get_protend();
-           $full5           = substr($full5,0,$end_first_exon+(length($full5)-length($this_prot)))
+           my $end_first_exon = $exons->[0]->get_protend();
+           $full5             = substr($full5,0,$end_first_exon+(length($full5)-length($protein_sequence)))
     }
 
-    my $all_possible_st      = &DefineAllPossibleStart($full5,$AA_ACCEPTED_START);
-    my ($best_start,$median) = &ChooseBestStart($st_pos_cmp_st_orf,$all_possible_st,$right_lim_for_st);
-    # If no M or v or l was found, def by similarity !!!
-    my ($firstMaj,$StartInMyProt) = &DefFirstMaj($ali,$prot);
-    my $SimiStart  = ($firstMaj - $StartInMyProt);
-       $SimiStart  = $hyp_st_full5 + $SimiStart < 0 ? -$hyp_st_full5 : $SimiStart;
+    my $all_possible_start = &DefineAllPossibleStart($full5,$three_start_limit);
 
-    if (!(defined $best_start)) {
-        &ChangeHypProtVal($hypprot, $SimiStart, $isMinus, $seq);
-        $hypprot->set_startwarning("Def by similarity no start found");
+    ##---------------------------------------------------------------------
+    ## No start found
+    if (scalar(keys %$all_possible_start) == 0) {
+        $hypprot->set_startwarning("No start found");
+        &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq) if $idByExo;
         return;
     }
 
-    # Add info about alternative start
-    my $first_M = undef;
-    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-        next if $all_possible_st->{$st_pos}->{"aa"} ne "M";
-        $first_M = $st_pos;
-        last;
+    ##---------------------------------------------------------------------
+    ## Start is found at same position as the one in closest homologous
+    ## could be a M or not:
+    ##   - if M all good
+    ##   - if not M add a comment
+
+    # If a possible start is found at the same place as
+    # the start found by HMM for the first homologous take this one
+    my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{"a"};
+
+    print Data::Dumper->Dump([$start_in_closest_homologous],["start_in_closest_homologous"]);
+
+    my $start_at_homologous_position = $all_possible_start->{$start_in_closest_homologous};
+
+    # If a possible start is found at the same place as
+    # the start found by HMM for the first homologous take this one
+    # Add a comment in case it is not a M
+    if ($start_at_homologous_position) {
+
+        my $new_start = $start_pos_cmp_start_orf->{"a"} - $pos_hyp_start_in_full5;
+        &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+
+        my $aa_start = lc($start_at_homologous_position->{'aa'});
+        $hypprot->set_startwarning("Start defined according to closest homologous") if $aa_start ne "m";
+
+        return;
     }
 
-    my $alt_start = $first_M    - $hyp_st_full5 if $first_M;
-    my $new_start = $best_start - $hyp_st_full5;
+    #---------------------------------------------------------------------
+    ## In other case annotate the closest downstream start:
+    ## 2 cases:
+    ##   - if the closest downstream start is a M, take this one
+    ##   - if the closest downstream start is not a M, take this one but add a note
+    ##     about the closest M find if one or let the user know that no M was found
 
-    if ( defined($alt_start) && $alt_start != $new_start) {
-        my $alternative_st_in_seq = $isMinus ? ($old_start - ($alt_start*3)) : ($old_start + ($alt_start*3));
-        $hypprot->set_altstart($alternative_st_in_seq);
-    }
+    # If no possible start is found at the same place as
+    # a start found by HMM for the first homologous
+    # take the most downstream start
 
-    # Annotate similary start if 1st start is too up or down.
-    # and add First start info in HypProt
-    # Note (17/08/2023): Adjust the best_start with the trim5 if it exists
-    # in order to know if we should add or not the comment about similar start in other species
-    my $best_start_minus_trim5 = $best_start - ($hypprot->get_trimIndexFive() || 0);
-
-    if (abs($best_start_minus_trim5 -$right_lim_for_st) > 2 && $best_start_minus_trim5 > $right_lim_for_st) {
-        $SimiStart = $isMinus ? ($old_start - ($SimiStart*3)) + 1 : ($old_start + ($SimiStart*3));
-
-        if ($best_start_minus_trim5 > $right_lim_for_st){
-            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
-            $hypprot->set_SimiStart($SimiStart);
-        } else {
-            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
-        }
+    # Sort all possible start and take the last one
+    my $closest_start_aa_pos    = (sort { $a <=> $b } keys %$all_possible_start)[-1];
+    # If the closest_start is a M take this one
+    if (lc($all_possible_start->{$closest_start_aa_pos}->{'aa'}) eq "m") {
+        my $new_start = $closest_start_aa_pos - $pos_hyp_start_in_full5;
+        &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+        return;
     } else {
-        $SimiStart = $isMinus ? ($old_start - ($SimiStart*3)) + 1 : ($old_start + ($SimiStart*3));
-        if ($best_start < $left_lim_for_st-10) {
-            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
-            $hypprot->set_SimiStart($SimiStart);
-        } else {
-            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+        # find the downstream M if one
+        my $all_possible_start_m = {};
+        my $start = undef;
+        while (my ($id, $start_pos_in_homologous) = each(%$all_possible_start)) {
+            $all_possible_start_m->{$id} = $start_pos_in_homologous if lc($start_pos_in_homologous->{'aa'}) eq "m";
         }
+
+        my $closest_m_start_aa_pos = (sort { $a <=> $b } keys %$all_possible_start_m)[-1];
+        my $comment                = undef;
+        if ($closest_m_start_aa_pos || $closest_m_start_aa_pos == 0) {
+            my $m_start             = $closest_m_start_aa_pos - $pos_hyp_start_in_full5;
+            my $closest_m_start_pos = $isMinus ? ($old_start - ($m_start*3)): ($old_start + ($m_start*3));
+            $comment = "first ATG found at position $closest_m_start_pos";
+        } else {
+            $comment = "no ATG initiation codon identified";
+        }
+
+        my $new_start = $closest_start_aa_pos - $pos_hyp_start_in_full5;
+        &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+        $hypprot->set_startwarning($comment);
     }
-    return if !$idByExo;
-    &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
+
+    &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq) if $idByExo;
 }
 
 sub ExtractLibSeqs {
@@ -2103,56 +2124,18 @@ sub DefEachStartInHMM {
         my $len_dash   = length($dash_chain);
         my $full_without_stop = $full;
            $full_without_stop =~ s/\*/X/g;
-        my $trim_index = index(uc($full_without_stop),uc($raw_seq));
-        $each_start->{$id} = $len_dash + $trim_index;
+        my $trim_index_five = index(uc($full_without_stop),uc($raw_seq));
+        $each_start->{$id} = $len_dash + $trim_index_five;
 
         if ($id eq "myProt") {
-            $hypprot->set_trimIndexFive($trim_index);
+            $hypprot->set_trimIndexFive($trim_index_five);
             my $ending_dash = $1 if $seq =~ m/(-+)$/;
-            my $trim_three  = length($ending_dash);
-            $hypprot->set_trimIndexThree($trim_three);
+            my $trim_index_three  = length($ending_dash);
+            $hypprot->set_trimIndexThree($trim_index_three);
         }
     }
+
     return $each_start;
-}
-
-sub DefFirstMaj {
-    my ($ali,$prot) = @_;
-
-    my $FirstMajs = ();
-    my $multalign     = $ali->[0];
-    my $alignedSeqs   = $multalign->get_alignedSeqs();
-    my $StartInMyProt = "";
-    # Define first letter in my current protein
-    foreach my $alignedSeq (@$alignedSeqs) {
-        my $id  = $alignedSeq->get_seqId();
-        next if $id ne "myProt";
-        my $seq = $alignedSeq->get_sequence();
-        for ( my $i = 0 ; $i < length($seq) ; $i++) {
-            my $char = uc(substr($seq,$i,1));
-            next if $char !~ m/[A-Z]/;
-            $StartInMyProt = $i  if $id eq "myProt";
-            last;
-        }
-    }
-
-    # Define first letter in each homologous protein
-    foreach my $alignedSeq (@$alignedSeqs) {
-        my $id  = $alignedSeq->get_seqId();
-        next if $id eq "myProt";
-        my $seq = $alignedSeq->get_sequence();
-        for ( my $i = 0 ; $i < length($seq) ; $i++) {
-            my $char = substr($seq,$i,1);
-            next if $char !~ m/[A-Z]/;
-            push(@$FirstMajs,$i);
-            last;
-        }
-    }
-
-    return (-1,$StartInMyProt) if !$FirstMajs;
-    @$FirstMajs  = sort { $a <=> $b } @$FirstMajs;
-    my $FirstMaj = $FirstMajs->[0];
-    return ($FirstMaj,$StartInMyProt);
 }
 
 # Get the protein sequence for a gene with lower case for
@@ -2225,195 +2208,62 @@ sub GetFull5 {
     return $full_5;
 }
 
-sub DefMaxAndMinStartInAli {
+sub DefFiveAndThreeStartInAli {
     my $each_start = shift;
 
-    my ($max_start,$min_start)  = (0,999999);
+    my ($five_start_limit,$three_start_limit)  = (99999,0);
     while ( my ($seq_id, $val) = each(%$each_start) ) {
-        $max_start = $val if $val > $max_start;
-        $min_start = $val if $val < $min_start;
+        $five_start_limit   = $val if $val < $five_start_limit;
+        $three_start_limit  = $val if $val > $three_start_limit;
     }
-    return ($max_start,$min_start);
+    return ($five_start_limit,$three_start_limit + 2);
 }
 
+# Define all possible start in the full5
 sub DefineAllPossibleStart {
-    my ($full5,$aa_accepted) = @_;
+    my ($full5,$three_start_limit) = @_;
 
     my $all_possible_start = {};
     my @t_full5 = split(//, $full5);
 
     for (my $i = 0 ; $i <= $#t_full5 ; $i++) {
         my $aa = $t_full5[$i];
-        next if !$aa_accepted->{$aa};
+        next if !$AA_ACCEPTED_START->{$aa};
+        last if $three_start_limit && $i > $three_start_limit;
         $all_possible_start->{$i}->{"aa"} = $aa;
     }
+
     return $all_possible_start;
 }
 
-sub ChooseBestStart {
-    my ($each_st,$all_possible_st,$right_lim_for_st) = @_;
-
-    # No start was found before last start in alignment
-    my $best_start  = undef;
-       $best_start  = &ChooseStartIfTooFar($all_possible_st,$right_lim_for_st);
-    my $median      = &Median($each_st);
-    return ($best_start,$median) if $best_start;
-
-    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-        #xxxxxxx +2 need to be an option.
-        delete $all_possible_st->{$st_pos} if $st_pos > ($right_lim_for_st + 2);
-    }
-
-    &AddInfoForPosStart($each_st,$all_possible_st);
-    my $nb_homo  = scalar(keys %$each_st);
-
-    # Start is defined with close homologous.
-    $best_start   = &ChooseStartWithCloseHomo($all_possible_st,$nb_homo);
-    return ($best_start,$median) if $best_start;
-
-    # Start is defined with median.
-    $best_start   = &ChooseStartWithAllHomo($each_st,$all_possible_st,$median);
-    return ($best_start,$median);
-}
-
-sub ChooseStartIfTooFar {
-    my ($all_possible_st,$limite) = @_;
-
-    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-        return $st_pos if $st_pos > $limite;
-        last;
-    }
-    return undef;
-}
-
-sub AddInfoForPosStart {
-    my $each_st         = shift;
-    my $all_possible_st = shift;
-
-    # Foreach close homologous
-    while (my ($id, $st_homo) = each(%$each_st)) {
-        next if $id gt "d";
-        my $close_hyp_st = undef;
-        my $min_diff_Whomo  = 100000;  #very hight value
-        # Foreach hypothetic start
-        foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-            my $aa                 = $all_possible_st->{$st_pos}->{"aa"};
-            my $min_diff_pos_start = defined($all_possible_st->{$st_pos}->{"min"}) ? $all_possible_st->{$st_pos}->{"min"} : 100000;
-            my $diff = abs($st_homo-$st_pos);
-            #print " id : $id st_pos : $st_pos diff : $diff\n";
-            # Choose se closest poss start
-            if ($diff < $min_diff_Whomo) {
-                ($close_hyp_st,$min_diff_Whomo) = ($st_pos,$diff);
-
-            }
-            # Set min dist for this start
-            if ($diff < $min_diff_pos_start) {
-                $all_possible_st->{$st_pos}->{"min"} = $diff;
-            }
-        }
-        next if !(defined $close_hyp_st);
-        $all_possible_st->{$close_hyp_st}->{"count"}++;
-    }
-}
-
-sub ChooseStartWithCloseHomo {
-    my $all_possible_st = shift;
-    my $nb_homo         = shift;
-
-    while ( my ($st_pos, $hash) = each(%$all_possible_st) ) {
-        my ($aa,$count) = ($hash->{"aa"},$hash->{"count"});
-        next if !$count;
-        if ($nb_homo >= 4) {
-           return $st_pos if $count >= 3;
-        }
-        elsif ($nb_homo == 2 || $nb_homo == 3) {
-            return $st_pos if $count >= 2;
-        }
-        elsif ($nb_homo == 1) {
-            return $st_pos if $count >= 1;
-        }
-    }
-    return undef;
-}
-
-sub ChooseStartWithAllHomo {
-    my $each_st         = shift;
-    my $all_possible_st = shift;
-    my $median          = shift;
-
-    foreach my $st_pos (sort (keys(%$all_possible_st))) {
-        delete $all_possible_st->{$st_pos}->{"count"};
-        delete $all_possible_st->{$st_pos}->{"min"};
-    }
-
-    my $close_hyp_st = undef;
-    my $min_diff     = 100000;  # very hight value
-    foreach my $st_pos (sort { $a <=> $b } keys %$all_possible_st) {
-        my $diff = abs($median-$st_pos);
-        ($close_hyp_st,$min_diff) = ($st_pos,$diff) if $diff < $min_diff;
-    }
-    return $close_hyp_st;
-}
-
-sub Median {
-    my $each_st = shift;
-
-    my @all_pos = ();
-    while ( my ($id, $pos) = each(%$each_st) ) {
-        push(@all_pos,$pos);
-    }
-    @all_pos = sort { $a <=> $b } @all_pos;
-    my $median   = "";
-    my $nb_elem  = scalar(@all_pos);
-    my $last_ind = $nb_elem - 1;
-    if ($nb_elem == 1) {
-        $median = $all_pos[0];
-    }
-    elsif (($nb_elem % 2) == 0) {
-        $median = $all_pos[($last_ind / 2)];
-    }
-    else {
-        $median = int ( $all_pos[int($last_ind / 2)]
-                    + (($all_pos[int($last_ind / 2) + 1]
-                      - $all_pos[int($last_ind / 2)]) / 2));
-    }
-    $median = $median >= 0 ? $median : 0;
-    return $median;
-}
-
+# Upddate values in the hypprot object
+# according to the new start:
+#   - the first_exon start if needed.
+#   - the start of the hypprot.
+#   - the protein of the hypprot.
 sub ChangeHypProtVal {
     my ($hypprot,$new_start,$isMinus,$seq) = @_;
 
     my $old_start  = $hypprot->get_start;
     my $end        = $hypprot->get_end;
     my $name       = $hypprot->get_name;
-    my $new_st_pos = $isMinus ? ($old_start - ($new_start*3)): ($old_start + ($new_start*3));
-    $new_st_pos = length($seq) if $new_st_pos > length($seq);
-    $new_st_pos = 0 if $new_st_pos < 0;
     my $exons      = $hypprot->get_exons();
-    my $first_exon = $exons->[0] if scalar(@$exons);
-    $first_exon->set_dnastart($new_st_pos) if $first_exon;
-    $hypprot->set_start($new_st_pos);
+    my $start      = $isMinus ? ($old_start - ($new_start*3)): ($old_start + ($new_start*3));
+    $start         = length($seq)          if $start > length($seq);
+    $start         = 0                     if $start < 0;
+    my $first_exon = $exons->[0]           if scalar(@$exons);
 
-    # 1. Def tri_nt start
-    my $start    = $new_st_pos;
-    my $g_length =  !$isMinus ? $end - $start + 1 : $start - $end + 1;
-    my $nt_seq   =  !$isMinus ? substr($seq, $start - 1 , $g_length) : substr($seq, $end - 1 , $g_length);
-       $nt_seq   =~ tr/ACGT/TGCA/    if $isMinus;
-       $nt_seq   = reverse $nt_seq   if $isMinus;
-    my $tri_nt   = uc (substr($nt_seq, 0 , 3));
+    # Set the start position and the first exon start position
+    $hypprot->set_start($start);
+    $first_exon->set_dnastart($start) if $first_exon;
 
+    # Adjust the information about the protein
     my $prot    = $hypprot->get_thisprot();
     $hypprot->set_thisprot(substr($prot,int(($start-$old_start)/3)));
-
-    $TRI_NT_START_COUNT ->{$tri_nt}++;
 }
 
 sub SearchForEndIfGeneHaveIntron {
-    my $hypprot     = shift;
-    my $exons       = shift;
-    my $isMinus     = shift;
-    my $seq         = shift;
+    my ($hypprot,$exons,$isMinus,$seq) = @_;
 
     my $len_seq    = length($seq);
     my $first_exon = $exons->[0];
@@ -3626,7 +3476,7 @@ sub RunHMMSearchForMiniEx {
                 $pos = 3;  #3' match
             }
             elsif ($hmmFrom == 1 && $hmmTo == $hmmLen) {
-                $pos = WhichPartWellId($ali,$More_p,$More_n);
+                $pos = &WhichPartWellId($ali,$More_p,$More_n);
             }
             $ali->set_pos($pos);
             if ($pos == 2 || ($hmmFrom > $hmmLen - $More_n) || ($hmmTo   < $More_p+1 )) {
@@ -3999,7 +3849,7 @@ sub DefineSeqAndAliOfResearchExon {
     return ($sub_percent,$sub_align);
 }
 
-sub Arrondi {
+sub Round {
     my ($n,$precision) = @_;
     return int((10**$precision)*$n + 0.5) / (10**$precision);
 }
@@ -4913,7 +4763,7 @@ sub SuspectIsInAFamily {
 
     my ($IsInAP,$ContainAP)    = &IsInOrContainAP($annot_who_overlap,$HP_start,$HP_stop);
     my ($OVInPercent,$AP_name,$AP_score) = (0,"",0);
-    my $hyprot_score = GetExoScore($HP_exons);
+    my $hyprot_score = &GetExoScore($HP_exons);
     if (scalar(@$IsInAP) != 0) {
         # HP is in AP
         my $to_rm            = [];
@@ -5417,8 +5267,8 @@ sub ReconstructFullRNA {
         my $annot_who_overlap_minus = keys( %$minus_annots) > 0 ? &WhatOverlapsThis($minus_annots->{$sorted_minus_keys[-1]}->get_startpos(),$minus_annots->{$sorted_minus_keys[0]}->get_endpos(),$contig) : [];
 
         # Remove annotation with type I in @$annot_who_overlap_plus and @$annot_who_overlap_minus
-        my ($rm_annot_who_overlap_plus,  $intron_overlapping_plus)  = RemoveIntronFromOverlap($annot_who_overlap_plus);
-        my ($rm_annot_who_overlap_minus, $intron_overlapping_minus) = RemoveIntronFromOverlap($annot_who_overlap_minus);
+        my ($rm_annot_who_overlap_plus,  $intron_overlapping_plus)  = &RemoveIntronFromOverlap($annot_who_overlap_plus);
+        my ($rm_annot_who_overlap_minus, $intron_overlapping_minus) = &RemoveIntronFromOverlap($annot_who_overlap_minus);
 
         next if scalar(@$rm_annot_who_overlap_plus) != 0 || scalar(@$rm_annot_who_overlap_minus) != 0;
 
@@ -6475,7 +6325,7 @@ sub CreateOrfAnnot {
     return ($orfannot);
 }
 
-sub RemovedOVOrfs() {
+sub RemovedOVOrfs {
     my ($hash_ORFs) = @_;
 
     foreach my $contigname ( keys %$hash_ORFs ) {
@@ -6529,7 +6379,7 @@ sub MakeListOfORFsToRM {
             my $orfsize_2   = (($max_2 - $min_2 + 1)/3) - 1;
             next if $orfsize_2 >= $OVERLORFOVORF;
             my $OV_autorized = ($OVERLAPPINGCUTOFF*$orfsize_2)/100;
-            $OV_autorized    =  &Arrondi(abs($OV_autorized),1);
+            $OV_autorized    =  &Round(abs($OV_autorized),1);
             my $max_start = ( ( $min_1 > $min_2) ? $min_1 : $min_2);
             my $min_end   = ( ( $max_1 < $max_2) ? $max_1 : $max_2);
             my $OV_len = ( $min_end - $max_start + 1);
@@ -6539,72 +6389,6 @@ sub MakeListOfORFsToRM {
         }
     }
     return $AP_toRM;
-}
-
-# sub AnnotateUpstreamAlternativeStart {
-#     my $contigs   = $pirmaster->get_contigs();
-
-#     foreach my $contig (@$contigs) {
-#         my $annotations = $contig->get_annotations();
-#         my $cg_len      = $contig->get_sequencelength();
-#         foreach my $annot (@$annotations) {
-#         next if $annot->get_type() ne "O";
-#         my $lim_5 = &define5lim($annot,$annotations,$cg_len);
-#         &DefineAlternativeUpstreamStart($annot,$lim_5);
-#         }
-#     }
-# }
-
-sub define5lim {
-    my ($ORFannot,$annotations,$cg_len)= @_;
-
-    my $lim_5 = "";
-    foreach my $annot (@$annotations) {
-        next if $ORFannot eq $annot;
-        next if $annot->get_type() eq "C";
-        my $ORF_five   = $ORFannot->get_startpos();
-        my $ORFisMinus = $ORFannot->get_direction eq "==>" ? 0 : 1;
-        if ($ORFisMinus == 1) {
-            my $min = $annot->get_startpos() < $annot->get_endpos() ? $annot->get_startpos : $annot->get_endpos();
-            next if $min < $ORF_five;
-            $lim_5 = $min if !$lim_5;
-            $lim_5 = $lim_5 < $min ? $lim_5 : $min;
-        }
-        else {
-            my $max = $annot->get_startpos() > $annot->get_endpos() ? $annot->get_startpos : $annot->get_endpos();
-            next if $max > $ORF_five;
-            $lim_5 = $max if !$lim_5;
-            $lim_5 = $lim_5 > $max ? $lim_5 : $max;
-        }
-    }
-    if ($lim_5 eq "") {
-    my $isMinus = $ORFannot->get_direction eq "<==" ? 1 : 0;
-        $lim_5 = !$isMinus ? 1 : $cg_len;
-    }
-    return $lim_5;
-}
-
-sub DefineAlternativeUpstreamStart {
-    my ($annot,$lim_5) = @_;
-
-    my $possible_starts = $annot->get_possStart();
-    my $isMinus         = $annot->get_direction eq "<==" ? 1 : 0;
-    my $ori_start       = $annot->get_startpos();
-
-    my ($alt_start,$aa)   = "";
-    foreach my $pos_start (@$possible_starts) {
-        next if ($pos_start->[1] < $lim_5)      && !$isMinus;
-        next if ($pos_start->[1] >= $ori_start) && !$isMinus;
-        next if ($pos_start->[1] > $lim_5)      && $isMinus;
-        next if ($pos_start->[1] <= $ori_start) && $isMinus;
-        $aa = $pos_start->[0];
-        next if $aa eq "ATG";
-        $alt_start = $pos_start->[1];
-        last;
-    }
-    my $startline = $annot->get_startline();
-    $startline .= " ;; mfannot: $aa upstream: $alt_start" if $alt_start;
-    $annot->set_startline($startline);
 }
 
 #---------------------------------#
@@ -7436,7 +7220,7 @@ sub CheckForFalseIntrons {
             }
 
             # Generation of gap list.
-            my $gap_list = CreateGapList($resume,$name,$contigname);
+            my $gap_list = &CreateGapList($resume,$name,$contigname);
 
             # Check if 2 gap is OV.
             $gap_list    = &CheckIfTwoGapOV($gap_list);
@@ -7900,7 +7684,7 @@ sub FindStartAndStopForSimpleGeneIdByHMM {
     my $this_prot       = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus);
     my $full5           = &GetFull5($seq,$isMinus,$this_prot,$start);
     my $HMMmatch        = $annot->get_HMMmatch();
-    my $all_possible_st = &DefineAllPossibleStart($full5,$AA_ACCEPTED_START);
+    my $all_possible_st = &DefineAllPossibleStart($full5);
     my $aliFrom         = length($full5) - length($this_prot);
     my $CloseStart      = &DefineCloseStart($all_possible_st,$aliFrom,$full5);
     my ($StartOrf,$EndOrf) = ($1,$2) if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
@@ -7973,7 +7757,7 @@ sub FindStartAndStopForComplexGeneIdByHMM {
     my $this_prot       = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus);
     my $full5           = &GetFull5($seq,$isMinus,$this_prot,$start);
     my $HMMmatch        = $tab_exons->[0]->get_HMMmatch();
-    my $all_possible_st = &DefineAllPossibleStart($full5,$AA_ACCEPTED_START);
+    my $all_possible_st = &DefineAllPossibleStart($full5);
     my $aliFrom         = length($full5) - length($this_prot);
     my $CloseStart      = &DefineCloseStart($all_possible_st,$aliFrom,$full5);
     my $StartOrf        = $1 if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*\d+\s*\]/;
@@ -8942,8 +8726,8 @@ sub CreateTBLoutput {
 
     if (($ret >> 8) > 1) {
         print STDERR "There was an error running mf2sqn.\n";
-  print STDERR "Content of STDERR output:\n";
-  system("cat",$mf2sqnErr);
+        print STDERR "Content of STDERR output:\n";
+        system("cat",$mf2sqnErr);
     }
 
     if ($SQN_FORMAT) {
