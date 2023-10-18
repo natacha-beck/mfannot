@@ -1722,6 +1722,7 @@ sub AdjustStartByHMM {
 
     # Def protein sequence
     my $prot             = $hypprot->get_name();
+    print Data::Dumper->Dump([$prot], [qw(*prot)]);
     my $protein_sequence = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
        $protein_sequence = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
     $hypprot->set_thisprot($protein_sequence);
@@ -1735,6 +1736,7 @@ sub AdjustStartByHMM {
 
     # Define the full5 == 5'UTR + identified protein sequence
     my $full5 = &GetFull5($seq,$isMinus,$protein_sequence,$start);
+    print Data::Dumper->Dump([$full5], [qw(*full5)]);
     $hypprot->set_full5($full5);
     my $pos_hyp_start_in_full5 = length($full5) - length($protein_sequence);
 
@@ -1744,9 +1746,11 @@ sub AdjustStartByHMM {
     my $protaln  = &RunHMM($prot,$prot.$flag,$this_fasta,$homo_fasta,"_For_Start");
 
     # Read ali and def each start in homologous
-    my $ali               = &ReadStockholmMultAligns($protaln);
-    my $each_start        = &DefEachStartInHMM($ali,$hypprot);
-    my $trim5             = $hypprot->get_trimIndexFive() || 0;
+    my $ali                                   = &ReadStockholmMultAligns($protaln);
+    my ($each_start,$each_trim5, $each_dash5) = &DefEachStartInHMM($ali,$hypprot);
+
+    my $hyp_trim5                             = $each_trim5->{"myProt"} || 0;
+    my $hyp_dash5                             = $each_dash5->{"myProt"} || 0;
 
     my $pos_hyp_start_ali = $each_start->{"myProt"};
     # Remove myProt from each_start since we want to find
@@ -1756,12 +1760,23 @@ sub AdjustStartByHMM {
     # Def lim of reasearch in Full5
     my $start_pos_cmp_start_orf = {};
     while (my ($id, $start_pos_in_homologous) = each(%$each_start)) {
-        $start_pos_cmp_start_orf->{$id}       = $pos_hyp_start_in_full5 + ($start_pos_in_homologous - $pos_hyp_start_ali);
+        my $current_trim5              = $each_trim5->{$id} || 0;
+        my $current_dash5              = $each_dash5->{$id} || 0;
+
+        my $cmp_start = $pos_hyp_start_in_full5 + ($hyp_trim5 - $current_trim5);
+        my $dash_diff = $current_dash5 - $hyp_dash5;
+        $cmp_start    = $cmp_start + $dash_diff;
+
+        $start_pos_cmp_start_orf->{$id} = $cmp_start;
     }
+
+    print Data::Dumper->Dump([$start_pos_cmp_start_orf], [qw(*start_pos_cmp_start_orf)]);
 
     # Define upper start in homologous protein == five_start_limit
     # Define lower start in homologous protein == three_start_limit
     my ($five_start_limit,$three_start_limit) = &DefFiveAndThreeStartInAli($start_pos_cmp_start_orf);
+
+    print Data::Dumper->Dump([$five_start_limit,$three_start_limit], [qw(*five_start_limit *three_start_limit)]);
 
     # Def first exon if gene with intron(s).
     # Create the full5 with the first exon only
@@ -1773,9 +1788,11 @@ sub AdjustStartByHMM {
 
     my $all_possible_start = &DefineAllPossibleStart($full5,$three_start_limit);
 
+
     ##---------------------------------------------------------------------
     ## No start found
     if (scalar(keys %$all_possible_start) == 0) {
+        print "   No start found\n";
         $hypprot->set_startwarning("No start found");
         &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq) if $idByExo;
         return;
@@ -1790,21 +1807,38 @@ sub AdjustStartByHMM {
     # If a possible start is found at the same place as
     # the start found by HMM for the first homologous take this one
     my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{"a"};
-
-    print Data::Dumper->Dump([$start_in_closest_homologous],["start_in_closest_homologous"]);
-
     my $start_at_homologous_position = $all_possible_start->{$start_in_closest_homologous};
+
+    # Iterate over all_possible_start in reverse order
+    # and store first upstream M
+    my $closest_m_start_aa_pos = undef;
+    my $closest_m_start        = undef;
+    foreach my $pos (sort { $b <=> $a } keys %$all_possible_start) {
+        my $aa = $all_possible_start->{$pos}->{'aa'};
+        if (lc($aa) eq "m") {
+            $closest_m_start_aa_pos = $pos;
+            my $m_start = $pos - $pos_hyp_start_in_full5;
+            $closest_m_start = $isMinus ? ($old_start - ($m_start*3)): ($old_start + ($m_start*3));
+            last;
+        }
+    }
+
+    print Data::Dumper->Dump([$all_possible_start], [qw(*all_possible_start)]);
 
     # If a possible start is found at the same place as
     # the start found by HMM for the first homologous take this one
     # Add a comment in case it is not a M
     if ($start_at_homologous_position) {
-
         my $new_start = $start_pos_cmp_start_orf->{"a"} - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
 
         my $aa_start = lc($start_at_homologous_position->{'aa'});
-        $hypprot->set_startwarning("Start defined according to closest homologous") if $aa_start ne "m";
+        if ($aa_start ne "m") {
+            my $comments = [];
+            push(@$comments, "Start defined according to closest homologous") if lc($aa_start) ne "m";
+            push(@$comments, "first ATG found at position $closest_m_start")  if $closest_m_start;
+            $hypprot->set_startwarning(join(", ", @$comments));
+        }
 
         return;
     }
@@ -1818,26 +1852,20 @@ sub AdjustStartByHMM {
 
     # If no possible start is found at the same place as
     # a start found by HMM for the first homologous
-    # take the most downstream start
+    # take the most upstream start
 
-    # Sort all possible start and take the last one
+    print Data::Dumper->Dump([$all_possible_start], [qw(*all_possible_start)]);
     my $closest_start_aa_pos    = (sort { $a <=> $b } keys %$all_possible_start)[-1];
+
     # If the closest_start is a M take this one
     if (lc($all_possible_start->{$closest_start_aa_pos}->{'aa'}) eq "m") {
+        print "   Start found at position $closest_start_aa_pos\n";
         my $new_start = $closest_start_aa_pos - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
     } else {
-        # find the downstream M if one
-        my $all_possible_start_m = {};
-        my $start = undef;
-        while (my ($id, $start_pos_in_homologous) = each(%$all_possible_start)) {
-            $all_possible_start_m->{$id} = $start_pos_in_homologous if lc($start_pos_in_homologous->{'aa'}) eq "m";
-        }
-
-        my $closest_m_start_aa_pos = (sort { $a <=> $b } keys %$all_possible_start_m)[-1];
         my $comment                = undef;
-        if ($closest_m_start_aa_pos || $closest_m_start_aa_pos == 0) {
+        if ($closest_m_start_aa_pos || ($closest_m_start_aa_pos && $closest_m_start_aa_pos == 0)) {
             my $m_start             = $closest_m_start_aa_pos - $pos_hyp_start_in_full5;
             my $closest_m_start_pos = $isMinus ? ($old_start - ($m_start*3)): ($old_start + ($m_start*3));
             $comment = "first ATG found at position $closest_m_start_pos";
@@ -2091,7 +2119,64 @@ sub ReadStockholmMultAligns {
     return $content;
 }
 
+
 sub DefEachStartInHMM {
+    my ($align,$hypprot) = @_;
+
+    my $each_start  = {};
+    my $each_trim5  = {};
+    my $each_dash5  = {};
+    my $multalign   = $align->[0];
+    my $alignedSeqs = $multalign->get_alignedSeqs();
+
+    # Create a hash with each protein used in HMM
+    my $full_sequences = {};
+    my $homologous     = $hypprot->get_homologous();
+    foreach my $homo (@$homologous) {
+        my $shortname = $homo->get_shortname();
+        my $protein   = $homo->get_similarprot();
+
+        $protein =~ s/>.+\n//;
+        $full_sequences->{$shortname} = $protein;
+    }
+
+    # The Hash with each protein will be used to correct the start position in
+    # each alignment it should be done due the the usage of --trim option for HMM
+    foreach my $alignedSeq (@$alignedSeqs) {
+        my $id    = $alignedSeq->get_seqId();
+        my $full  = $full_sequences->{$id} || $hypprot->get_thisprot();
+
+        my $seq        = $alignedSeq->get_sequence();
+        my $dash_seq   = $seq;
+           $dash_seq   =~ s/\./\-/g;
+        my $raw_seq    = $dash_seq;
+           $raw_seq    =~ s/\-//g;
+
+        my $full_without_stop = $full;
+           $full_without_stop =~ s/\*/X/g;
+        my $trim_index_five = index(uc($full_without_stop),uc($raw_seq));
+
+        my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
+        my $len_dash   = length($dash_chain);
+
+        $each_start->{$id} = $len_dash + $trim_index_five;
+        $each_dash5->{$id} = $len_dash;
+        $each_trim5->{$id} = $trim_index_five;
+
+        if ($id eq "myProt") {
+            $hypprot->set_trimIndexFive($trim_index_five);
+            my $ending_dash = $1 if $seq =~ m/(-+)$/;
+            my $trim_index_three  = length($ending_dash);
+            $hypprot->set_trimIndexThree($trim_index_three);
+        }
+    }
+
+    return ($each_start,$each_trim5,$each_dash5);
+}
+
+
+
+sub OldDefEachStartInHMM {
     my ($align,$hypprot) = @_;
 
     my $each_start = {};
@@ -2120,12 +2205,16 @@ sub DefEachStartInHMM {
            $dash_seq   =~ s/\./\-/g;
         my $raw_seq    = $dash_seq;
            $raw_seq    =~ s/\-//g;
-        my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
-        my $len_dash   = length($dash_chain);
+
+
         my $full_without_stop = $full;
            $full_without_stop =~ s/\*/X/g;
         my $trim_index_five = index(uc($full_without_stop),uc($raw_seq));
-        $each_start->{$id} = $len_dash + $trim_index_five;
+        print "$id: Trim index five $trim_index_five\n";
+
+        my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
+        my $len_dash   = length($dash_chain);
+        $each_start->{$id}  = $len_dash + $trim_index_five;
 
         if ($id eq "myProt") {
             $hypprot->set_trimIndexFive($trim_index_five);
@@ -2177,6 +2266,7 @@ sub Get_nt_seq {
 
 sub GetFull5 {
     my ($seq, $isMinus, $prot_seq, $start) = @_;
+    print Data::Dumper->Dump([$seq, $isMinus, $prot_seq, $start], [qw(*seq *isMinus *prot_seq *start)]);
 
     my $use_seq =  uc($seq);
     $use_seq =~ tr/ACGT/TGCA/    if $isMinus;
@@ -2193,6 +2283,9 @@ sub GetFull5 {
         last if $currentpos < 1;
         my $tri_nt = uc (substr($use_seq, $currentpos - 1,3));
         my $aa       = $CODON_TABLE->{$tri_nt} || "X";
+
+        print Data::Dumper->Dump([$currentpos,$tri_nt,$aa], [qw(*currentpos *tri_nt *aa)]);
+
         # Lower case for possible start codons
         my $accepted_aa_for_tri_nt = $ALTERNATIVE_ACCEPTED_START->{$tri_nt} || [];
         # If $accepted_aa_for_tri_nt contains "x" then all tri_nt is possible start codon and should be lower case
