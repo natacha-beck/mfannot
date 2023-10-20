@@ -1726,6 +1726,7 @@ sub AdjustStartByHMM {
 
     # Def protein sequence
     my $prot             = $hypprot->get_name();
+
     my $protein_sequence = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
        $protein_sequence = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
     $hypprot->set_thisprot($protein_sequence);
@@ -1785,11 +1786,12 @@ sub AdjustStartByHMM {
     # Iterate over the 3 closest homologous proteins and
     # check if the start is found at the same position as the one in closest homologous
     # could be a M or not:
+
     my $homologous = ["a","b","c"];
     for (my $i=0; $i < @$homologous; $i++) {
         my $id = $homologous->[$i];
         my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{$id};
-        if ($all_possible_start->{$start_in_closest_homologous}) {
+        if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
             my $new_start = $start_pos_cmp_start_orf->{$id} - $pos_hyp_start_in_full5;
             &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
             return;
@@ -1871,7 +1873,7 @@ sub AdjustStartByHMM {
     # Annotate first upstream alternative start codon
     my $filtered_upstream_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 0);
     my $first_upstream_start    = (sort { $a <=> $b } keys %$filtered_upstream_start)[-1];
-    if ($first_upstream_start && $first_upstream_start != $first_upstream_atg) {
+    if ($first_upstream_start && $first_upstream_atg && $first_upstream_start != $first_upstream_atg) {
         my $first_upstream_start_pos = $first_upstream_start - $pos_hyp_start_in_full5;
         $first_upstream_start_pos    = &ChangeStart($hypprot->get_start, $first_upstream_start_pos, $isMinus,$seq);
         my $tri_nt = &Get_nt_seq($seq,$first_upstream_start_pos,$isMinus ? $first_upstream_start_pos-3 : $first_upstream_start_pos+3,$isMinus);
@@ -1881,7 +1883,7 @@ sub AdjustStartByHMM {
     # Annotate first downstream alternative start codon
     my $filtered_downstream_start = &FilterAllPossibleStart($all_possible_start,0,length($full5), 0);
     my $first_downstream_start    = (sort { $a <=> $b } keys %$filtered_downstream_start)[0];
-    if ($first_downstream_start && $first_downstream_start != $first_downstream_atg) {
+    if ($first_downstream_start && $first_downstream_atg && $first_downstream_start != $first_downstream_atg) {
 
         my $first_downstream_start_pos = $first_downstream_start - $pos_hyp_start_in_full5;
         $first_downstream_start_pos    = &ChangeStart($hypprot->get_start, $first_downstream_start_pos, $isMinus,$seq);
