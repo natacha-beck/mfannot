@@ -1720,6 +1720,10 @@ sub AdjustStartByHMM {
     my $WithIntrons = (scalar(@$exons) > 1 ? 1 : 0);
     my $idByExo     = $hypprot->get_idbyexo() ? 1 : 0;
 
+
+    # Def end if gene with intron(s).
+    &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq) if $idByExo;
+
     # Def protein sequence
     my $prot             = $hypprot->get_name();
     print Data::Dumper->Dump([$prot], [qw(*prot)]);
@@ -1749,15 +1753,13 @@ sub AdjustStartByHMM {
     my $ali                                   = &ReadStockholmMultAligns($protaln);
     my ($each_start,$each_trim5, $each_dash5) = &DefEachStartInHMM($ali,$hypprot);
 
-    my $hyp_trim5                             = $each_trim5->{"myProt"} || 0;
-    my $hyp_dash5                             = $each_dash5->{"myProt"} || 0;
-
-    my $pos_hyp_start_ali = $each_start->{"myProt"};
     # Remove myProt from each_start since we want to find
     # the best start according to the homologous proteins
     delete $each_start->{"myProt"};
 
-    # Def lim of reasearch in Full5
+    # Def start position in homologous protein
+    my $hyp_trim5                             = $each_trim5->{"myProt"} || 0;
+    my $hyp_dash5                             = $each_dash5->{"myProt"} || 0;
     my $start_pos_cmp_start_orf = {};
     while (my ($id, $start_pos_in_homologous) = each(%$each_start)) {
         my $current_trim5              = $each_trim5->{$id} || 0;
@@ -1770,13 +1772,12 @@ sub AdjustStartByHMM {
         $start_pos_cmp_start_orf->{$id} = $cmp_start;
     }
 
-    print Data::Dumper->Dump([$start_pos_cmp_start_orf], [qw(*start_pos_cmp_start_orf)]);
+    # print Data::Dumper->Dump([$start_pos_cmp_start_orf], [qw(*start_pos_cmp_start_orf)]);
 
     # Define upper start in homologous protein == five_start_limit
     # Define lower start in homologous protein == three_start_limit
-    my ($five_start_limit,$three_start_limit) = &DefFiveAndThreeStartInAli($start_pos_cmp_start_orf);
-
-    print Data::Dumper->Dump([$five_start_limit,$three_start_limit], [qw(*five_start_limit *three_start_limit)]);
+    # my ($five_start_limit,$three_start_limit) = &DefFiveAndThreeStartInAli($start_pos_cmp_start_orf);
+    # print Data::Dumper->Dump([$five_start_limit,$three_start_limit], [qw(*five_start_limit *three_start_limit)]);
 
     # Def first exon if gene with intron(s).
     # Create the full5 with the first exon only
@@ -1786,99 +1787,87 @@ sub AdjustStartByHMM {
            $full5             = substr($full5,0,$end_first_exon+(length($full5)-length($protein_sequence)))
     }
 
-    my $all_possible_start = &DefineAllPossibleStart($full5,$three_start_limit);
+    my $all_possible_start  = &DefineAllPossibleStart($full5);
+    # print Data::Dumper->Dump([$all_possible_start], [qw(*all_possible_start)]);
 
-
-    ##---------------------------------------------------------------------
-    ## No start found
-    if (scalar(keys %$all_possible_start) == 0) {
-        print "   No start found\n";
-        $hypprot->set_startwarning("No start found");
-        &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq) if $idByExo;
-        return;
-    }
-
-    ##---------------------------------------------------------------------
-    ## Start is found at same position as the one in closest homologous
-    ## could be a M or not:
-    ##   - if M all good
-    ##   - if not M add a comment
-
-    # If a possible start is found at the same place as
-    # the start found by HMM for the first homologous take this one
-    my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{"a"};
-    my $start_at_homologous_position = $all_possible_start->{$start_in_closest_homologous};
-
-    # Iterate over all_possible_start in reverse order
-    # and store first upstream M
-    my $closest_m_start_aa_pos = undef;
-    my $closest_m_start        = undef;
-    foreach my $pos (sort { $b <=> $a } keys %$all_possible_start) {
-        my $aa = $all_possible_start->{$pos}->{'aa'};
-        if (lc($aa) eq "m") {
-            $closest_m_start_aa_pos = $pos;
-            my $m_start = $pos - $pos_hyp_start_in_full5;
-            $closest_m_start = $isMinus ? ($old_start - ($m_start*3)): ($old_start + ($m_start*3));
-            last;
+    # Iterate over the 3 closest homologous proteins and
+    # check if the start is found at the same position as the one in closest homologous
+    # could be a M or not:
+    my $homologous = ["a","b","c"];
+    for (my $i=0; $i < @$homologous; $i++) {
+        my $id = $homologous->[$i];
+        my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{$id};
+        if ($all_possible_start->{$start_in_closest_homologous}) {
+            my $new_start = $start_pos_cmp_start_orf->{$id} - $pos_hyp_start_in_full5;
+            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+            $hypprot->set_startwarning("Def by simi");
+            return;
         }
     }
 
-    print Data::Dumper->Dump([$all_possible_start], [qw(*all_possible_start)]);
+    # Take the first homologous and look for start in a +/- 3 aa window
+    my $closest_start_pos           = $start_pos_cmp_start_orf->{"a"};
+    my $limit_5                     = $closest_start_pos - 3;
+       $limit_5                     = 0 if $limit_5 < 0;
+    my $limit_3                     = $closest_start_pos + 3;
 
-    # If a possible start is found at the same place as
-    # the start found by HMM for the first homologous take this one
-    # Add a comment in case it is not a M
-    if ($start_at_homologous_position) {
-        my $new_start = $start_pos_cmp_start_orf->{"a"} - $pos_hyp_start_in_full5;
+    print Data::Dumper->Dump([$limit_5,$limit_3], [qw(*limit_5 *limit_3)]);
+
+    # Filter all possible M start in the +/- 3 aa window
+    my $filtered_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 1);
+    my $new_start                   = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
+
+    if ($new_start) {
+        my $diff = $closest_start_pos - int($new_start);
+        my $up_or_down = $diff < 0 ? "downstream" : "upstream";
+           $diff = abs($diff);
+        $hypprot->set_startwarning("Start found at $diff aa $up_or_down from start in homologous");
+
+        $new_start = $new_start - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
-
-        my $aa_start = lc($start_at_homologous_position->{'aa'});
-        if ($aa_start ne "m") {
-            my $comments = [];
-            push(@$comments, "Start defined according to closest homologous") if lc($aa_start) ne "m";
-            push(@$comments, "first ATG found at position $closest_m_start")  if $closest_m_start;
-            $hypprot->set_startwarning(join(", ", @$comments));
-        }
-
+        # Add comment about the position of the start in the homologous
         return;
     }
 
-    #---------------------------------------------------------------------
-    ## In other case annotate the closest downstream start:
-    ## 2 cases:
-    ##   - if the closest downstream start is a M, take this one
-    ##   - if the closest downstream start is not a M, take this one but add a note
-    ##     about the closest M find if one or let the user know that no M was found
+    # WIP need to be completed
 
-    # If no possible start is found at the same place as
-    # a start found by HMM for the first homologous
-    # take the most upstream start
+    # Filter all possible start in the +/- 3 aa window
+    $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 0);
+    $new_start                   = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
 
-    print Data::Dumper->Dump([$all_possible_start], [qw(*all_possible_start)]);
-    my $closest_start_aa_pos    = (sort { $a <=> $b } keys %$all_possible_start)[-1];
+    if ($new_start) {
+        my $diff = $closest_start_pos - int($new_start);
+        my $up_or_down = $diff < 0 ? "downstream" : "upstream";
+           $diff = abs($diff);
+        $hypprot->set_startwarning("Start found at $diff aa $up_or_down from start in homologous");
 
-    # If the closest_start is a M take this one
-    if (lc($all_possible_start->{$closest_start_aa_pos}->{'aa'}) eq "m") {
-        print "   Start found at position $closest_start_aa_pos\n";
-        my $new_start = $closest_start_aa_pos - $pos_hyp_start_in_full5;
+        $new_start = $new_start - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
-    } else {
-        my $comment                = undef;
-        if ($closest_m_start_aa_pos || ($closest_m_start_aa_pos && $closest_m_start_aa_pos == 0)) {
-            my $m_start             = $closest_m_start_aa_pos - $pos_hyp_start_in_full5;
-            my $closest_m_start_pos = $isMinus ? ($old_start - ($m_start*3)): ($old_start + ($m_start*3));
-            $comment = "first ATG found at position $closest_m_start_pos";
-        } else {
-            $comment = "no ATG initiation codon identified";
-        }
-
-        my $new_start = $closest_start_aa_pos - $pos_hyp_start_in_full5;
-        &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
-        $hypprot->set_startwarning($comment);
     }
 
-    &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq) if $idByExo;
+    # If no start found set start at position in closest homologous
+    $new_start = $start_pos_cmp_start_orf->{"a"} - $pos_hyp_start_in_full5;
+    # (i)   no proper translation codon identified,
+    my $comment = "No proper translation codon identified";
+
+    # (ii)  first upstream ATG at position x, first downstream ATG in position Y,
+    my $filtered_upstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 1);
+    my $first_upstream_atg                   = (sort { $a <=> $b } keys %$filtered_upstream_ATG_possible_start)[-1];
+    $comment .= ", first upstream ATG at position $first_upstream_atg"     if $first_upstream_atg;
+
+    my $first_downstream_atg = "XXX";
+    $comment .- ", first downstream ATG at position $first_downstream_atg" if $first_downstream_atg;
+
+    # (iii) first upstream alternative start codon (gc=...) at position Z      and if there is none whatsoever, comment= no valid start codon found
+    my $first_alternative_upstream_start_codon   = "XXX";
+    $comment .= ", first upstream alternative start codon (gc=...) at position $first_alternative_upstream_start_codon"     if $first_alternative_upstream_start_codon;
+    my $first_alternative_downstream_start_codon = "XXX";
+    $comment .= ", first downstream alternative start codon (gc=...) at position $first_alternative_downstream_start_codon" if $first_alternative_downstream_start_codon;
+
+    &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+    $hypprot->set_startwarning("No close start found");
+    return;
 }
 
 sub ExtractLibSeqs {
@@ -2266,7 +2255,7 @@ sub Get_nt_seq {
 
 sub GetFull5 {
     my ($seq, $isMinus, $prot_seq, $start) = @_;
-    print Data::Dumper->Dump([$seq, $isMinus, $prot_seq, $start], [qw(*seq *isMinus *prot_seq *start)]);
+    # print Data::Dumper->Dump([$seq, $isMinus, $prot_seq, $start], [qw(*seq *isMinus *prot_seq *start)]);
 
     my $use_seq =  uc($seq);
     $use_seq =~ tr/ACGT/TGCA/    if $isMinus;
@@ -2284,7 +2273,7 @@ sub GetFull5 {
         my $tri_nt = uc (substr($use_seq, $currentpos - 1,3));
         my $aa       = $CODON_TABLE->{$tri_nt} || "X";
 
-        print Data::Dumper->Dump([$currentpos,$tri_nt,$aa], [qw(*currentpos *tri_nt *aa)]);
+        # print Data::Dumper->Dump([$currentpos,$tri_nt,$aa], [qw(*currentpos *tri_nt *aa)]);
 
         # Lower case for possible start codons
         my $accepted_aa_for_tri_nt = $ALTERNATIVE_ACCEPTED_START->{$tri_nt} || [];
@@ -2306,6 +2295,8 @@ sub DefFiveAndThreeStartInAli {
 
     my ($five_start_limit,$three_start_limit)  = (99999,0);
     while ( my ($seq_id, $val) = each(%$each_start) ) {
+        # only do that for a b c and d
+        next if $seq_id !~ m/^[abcd]$/;
         $five_start_limit   = $val if $val < $five_start_limit;
         $three_start_limit  = $val if $val > $three_start_limit;
     }
@@ -2314,7 +2305,7 @@ sub DefFiveAndThreeStartInAli {
 
 # Define all possible start in the full5
 sub DefineAllPossibleStart {
-    my ($full5,$three_start_limit) = @_;
+    my ($full5) = @_;
 
     my $all_possible_start = {};
     my @t_full5 = split(//, $full5);
@@ -2322,11 +2313,26 @@ sub DefineAllPossibleStart {
     for (my $i = 0 ; $i <= $#t_full5 ; $i++) {
         my $aa = $t_full5[$i];
         next if !$AA_ACCEPTED_START->{$aa};
-        last if $three_start_limit && $i > $three_start_limit;
+        # last if $three_start_limit && $i > $three_start_limit;
         $all_possible_start->{$i}->{"aa"} = $aa;
     }
 
     return $all_possible_start;
+}
+
+# Filtered all possible start between 5 and 3 limit
+sub FilterAllPossibleStart {
+    my ($all_possible_start,$five_start_limit,$three_start_limit, $ATG_only) = @_;
+
+    my $filtered_all_possible_start = {};
+    while ( my ($pos, $val) = each(%$all_possible_start) ) {
+        next if $pos < $five_start_limit;
+        next if $pos > $three_start_limit;
+        next if $ATG_only && lc($val->{'aa'}) ne "m";
+        $filtered_all_possible_start->{$pos}->{'aa'} = $val->{'aa'};
+    }
+
+    return $filtered_all_possible_start;
 }
 
 # Upddate values in the hypprot object
