@@ -1796,15 +1796,15 @@ sub AdjustStartByHMM {
         }
     }
 
-    ## Look for M start in a +/- 3 aa window ##
+    ## Look for M start in a -10 upstream and +3 downstream aa window ##
 
     # Take the first homologous and look for start in a +/- 3 aa window
     my $closest_start_pos           = $start_pos_cmp_start_orf->{"a"};
-    my $limit_5                     = $closest_start_pos - 3;
+    my $limit_5                     = $closest_start_pos - 10;
        $limit_5                     = 0 if $limit_5 < 0;
     my $limit_3                     = $closest_start_pos + 3;
 
-    # Filter all possible M start in the +/- 3 aa window
+    # Filter all possible M start in the -10 upstream and +3 downstream aa window
     my $filtered_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 1);
     my $new_start                   = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
 
@@ -1812,16 +1812,16 @@ sub AdjustStartByHMM {
         my $diff = $closest_start_pos - int($new_start);
         my $up_or_down = $diff < 0 ? "downstream" : "upstream";
            $diff = abs($diff);
-        $hypprot->set_startwarning("Start found at $diff aa $up_or_down from start in homologous");
+        $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein");
 
         $new_start = $new_start - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
     }
 
-    ## Look for start in a +/- 3 aa window ##
+    ## Look for start in a -10 upstream and +3 downstream aa window ##
 
-    # Filter all possible start in the +/- 3 aa window
+    # Filter all possible start in the -10 upstream and +3 downstream aa window
     my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 0);
     $new_start                   = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
 
@@ -1829,7 +1829,7 @@ sub AdjustStartByHMM {
         my $diff = $closest_start_pos - int($new_start);
         my $up_or_down = $diff < 0 ? "downstream" : "upstream";
            $diff = abs($diff);
-        $hypprot->set_startwarning("Start found at $diff aa $up_or_down from start in homologous");
+        $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein");
 
         $new_start = $new_start - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
