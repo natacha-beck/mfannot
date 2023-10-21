@@ -1811,12 +1811,13 @@ sub AdjustStartByHMM {
     my $filtered_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 1);
     my $new_start                   = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
 
-    if ($new_start || ($new_start && $new_start == 0)) {
+    # Check if start is defined or if it is 0
+    if (defined $new_start) {
         my $diff = $closest_start_pos - int($new_start);
         my $up_or_down = $diff < 0 ? "downstream" : "upstream";
            $diff = abs($diff);
         $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein");
-
+        print "ATG start found $diff positions $up_or_down, compared to close reference  protein\n";
         $new_start = $new_start - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
@@ -1828,12 +1829,12 @@ sub AdjustStartByHMM {
     my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 0);
     $new_start                   = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
 
-    if ($new_start || ($new_start && $new_start == 0)) {
+    if (defined $new_start) {
         my $diff = $closest_start_pos - int($new_start);
         my $up_or_down = $diff < 0 ? "downstream" : "upstream";
            $diff = abs($diff);
         $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein");
-
+        print "Start found $diff positions $up_or_down, compared to close reference  protein\n";
         $new_start = $new_start - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
@@ -1854,7 +1855,7 @@ sub AdjustStartByHMM {
     # Annotate the first upstream ATG
     my $filtered_upstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 1);
     my $first_upstream_atg = (sort { $a <=> $b } keys %$filtered_upstream_ATG_possible_start)[-1];
-    if ($first_upstream_atg || ($first_upstream_atg && $first_upstream_atg == 0)) {
+    if (defined $first_upstream_atg) {
         my $first_upstream_atg_pos = $first_upstream_atg - $pos_hyp_start_in_full5;
         $first_upstream_atg_pos    = &ChangeStart($hypprot->get_start, $first_upstream_atg_pos, $isMinus,$seq);
         $comment .= ", first upstream ATG at position $first_upstream_atg_pos";
@@ -1863,7 +1864,7 @@ sub AdjustStartByHMM {
     # Annotate the first downstream ATG
     my $filtered_downstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,length($full5), 1);
     my $first_downstream_atg                   = (sort { $a <=> $b } keys %$filtered_downstream_ATG_possible_start)[0];
-    if ($first_downstream_atg || ($first_downstream_atg && $first_downstream_atg == 0)) {
+    if (defined $first_downstream_atg) {
         my $first_downstream_atg_pos = $first_downstream_atg - $pos_hyp_start_in_full5;
         $first_downstream_atg_pos    = &ChangeStart($hypprot->get_start, $first_downstream_atg_pos, $isMinus,$seq);
         $comment .= ", first downstream ATG at position $first_downstream_atg_pos";
@@ -1875,8 +1876,8 @@ sub AdjustStartByHMM {
     my $filtered_upstream_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 0);
     my $first_upstream_start    = (sort { $a <=> $b } keys %$filtered_upstream_start)[-1];
     if (
-        ($first_upstream_start || ($first_upstream_start && $first_upstream_start == 0)) &&
-        ($first_upstream_atg   || ($first_upstream_atg   && $first_upstream_atg   == 0)) &&
+        defined $first_upstream_start &&
+        defined $first_upstream_atg   &&
         $first_upstream_start != $first_upstream_atg
        ) {
         my $first_upstream_start_pos = $first_upstream_start - $pos_hyp_start_in_full5;
@@ -1890,8 +1891,8 @@ sub AdjustStartByHMM {
     my $filtered_downstream_start = &FilterAllPossibleStart($all_possible_start,0,length($full5), 0);
     my $first_downstream_start    = (sort { $a <=> $b } keys %$filtered_downstream_start)[0];
     if (
-        ($first_downstream_start || ($first_downstream_start && $first_downstream_start == 0)) &&
-        ($first_downstream_atg   || ($first_downstream_atg   && $first_downstream_atg   == 0)) &&
+        defined $first_downstream_start &&
+        defined $first_downstream_atg   &&
         $first_downstream_start != $first_downstream_atg
         ) {
         my $first_downstream_start_pos = $first_downstream_start - $pos_hyp_start_in_full5;
