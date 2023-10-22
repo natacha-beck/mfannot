@@ -1828,6 +1828,14 @@ sub AdjustStartByHMM {
             &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
             return;
         }
+
+
+        # Look for M only at the same place as the closest homologous
+        if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
+            my $new_start = $start_pos_cmp_start_orf->{$id} - $pos_hyp_start_in_full5;
+            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+            return;
+        }
     }
 
     ## Look for M start in a -10 upstream and +3 downstream aa window ##
