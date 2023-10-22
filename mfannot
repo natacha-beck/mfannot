@@ -165,6 +165,10 @@ my $LVL_INTRON;                                 # Indicate level of intron ident
 my $BLASTOUTPUT       = "";                     # The path for blast file results
 my $BLASTEVALUECUTOFF;                          # Cutoff value for the blast
 my $HMMVALUECUTOFF    = "10e-3";                # Cutoff value for HMM
+my $SHORT_RANGE_START_UPSTREAM   = 2;           # Short range for upstream start
+my $SHORT_RANGE_START_DOWNSTREAM = 1;           # Short range for downstream start
+my $RANGE_START_UPSTREAM   = 10;                # Range for upstream start
+my $RANGE_START_DOWNSTREAM = 3;                 # Range for downstream start
 my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with flip
 my $MAXLENGTHFORGROUPINGORF;                    # Maximum size of a gap between 2 ORf. If 2 same ORF
 my $MAXLENINTRONS;                              # Max intron size for exonerate.
@@ -1792,8 +1796,35 @@ sub AdjustStartByHMM {
     for (my $i=0; $i < @$homologous; $i++) {
         my $id = $homologous->[$i];
         my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{$id};
-        if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
+
+        my $aa = undef;
+        if ($start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
+            $aa = $all_possible_start->{$start_in_closest_homologous}->{"aa"};
+        }
+
+        # Look for M only at the same place as the closest homologous
+        if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous} && $aa && $aa eq "m") {
             my $new_start = $start_pos_cmp_start_orf->{$id} - $pos_hyp_start_in_full5;
+            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+            return;
+        }
+
+        ## Look for M start in a short aa window ##
+
+        my $short_limit_5 = $start_in_closest_homologous - $SHORT_RANGE_START_UPSTREAM;
+           $short_limit_5 = 0 if $short_limit_5 < 0;
+        my $short_limit_3 = $start_in_closest_homologous + $SHORT_RANGE_START_DOWNSTREAM;
+           $short_limit_3 = length($full5) if $short_limit_3 > length($full5);
+
+        my $filtered_short_m_possible_start = &FilterAllPossibleStart($all_possible_start,$short_limit_5,$short_limit_3, 1);
+
+        my $new_start = (sort { $a <=> $b } keys %$filtered_short_m_possible_start)[0];
+        if (defined $new_start) {
+            my $diff = $start_in_closest_homologous - int($new_start);
+            my $up_or_down = $diff < 0 ? "downstream" : "upstream";
+                $diff = abs($diff);
+            $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein");
+            $new_start = $new_start - $pos_hyp_start_in_full5;
             &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
             return;
         }
