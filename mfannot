@@ -1833,7 +1833,7 @@ sub AdjustStartByHMM {
     for (my $i=0; $i < @$homologous; $i++) {
         my $id = $homologous->[$i];
 
-        my $start_in_cloexsest_homologous  = $start_pos_cmp_start_orf->{$id};
+        my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{$id};
             # Look for all start only at the same place as the closest homologous
         if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
             my $new_start = $start_pos_cmp_start_orf->{$id} - $pos_hyp_start_in_full5;
