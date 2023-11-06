@@ -1822,7 +1822,7 @@ sub AdjustStartByHMM {
             my $diff = $start_in_closest_homologous - int($new_start);
             my $up_or_down = $diff < 0 ? "downstream" : "upstream";
                 $diff = abs($diff);
-            $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein");
+            $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference protein") if $diff != 0;
             $new_start = $new_start - $pos_hyp_start_in_full5;
             &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
             return;
@@ -1859,7 +1859,7 @@ sub AdjustStartByHMM {
         my $diff = $closest_start_pos - int($new_start);
         my $up_or_down = $diff < 0 ? "downstream" : "upstream";
            $diff = abs($diff);
-        $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein");
+        $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein") if $diff != 0;
         $new_start = $new_start - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
@@ -1875,7 +1875,7 @@ sub AdjustStartByHMM {
         my $diff = $closest_start_pos - int($new_start);
         my $up_or_down = $diff < 0 ? "downstream" : "upstream";
            $diff = abs($diff);
-        $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein");
+        $hypprot->set_startwarning("Start was found $diff positions $up_or_down, compared to close reference  protein") if $diff != 0;
         $new_start = $new_start - $pos_hyp_start_in_full5;
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
