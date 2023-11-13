@@ -1945,10 +1945,11 @@ sub AdjustStartByHMMForBLASTandExonerate {
 sub AddCommentForStart {
     my ($hypprot, $new_start, $closest_start, $extra_comment) = @_;
 
+
     my $diff       = int($closest_start) - int($new_start);
     my $up_or_down = $diff < 0 ? "downstream" : "upstream";
         $diff      = abs($diff);
-    my $warning = $diff != 0 ? "Start was found $diff positions $up_or_down, compared to close reference protein" : "";
+    my $warning = $diff != 0 ? " Start was found $diff positions $up_or_down, compared to close reference protein" : "";
 
     if ((ref($hypprot) && $hypprot->isa('PirObject::AnnotPair'))) {
         $warning     .= "$extra_comment" if $extra_comment ne "";
@@ -1981,8 +1982,6 @@ sub AdjustStartAndEndByHMMForHMM {
     } elsif ($posHMMmatch ne "") {
         $hmm_matches_comment = " HMM match from $posHMMmatch.";
     }
-
-    # my $hmm_start_comment   = $hmm_matches_comment ? " $hmm_matches_comment" : "";
 
     # If start is negative, we set it to the start of the ORF
     $start  = $StartOrf if ($start < $StartOrf && !$isMinus);
@@ -8176,7 +8175,7 @@ sub CreateAnnotCommentForHMM {
     my $posHMMmatchEnd   = !$isMinus ? $posHMMmatchStart + (($aliTo - $aliFrom + 1) * 3) : $posHMMmatchStart - (($aliTo - $aliFrom + 1) * 3);
 
     # It is the position of the hypothetical start codon in the contig once the alignment is done
-    my $SimiStart     = !$isMinus ? $StartOrf + (($aliFrom - $hmmFrom) * 3) : $StartOrf - (($aliFrom - $hmmFrom) * 3);
+    my $SimiStart     = $StartOrf + (($aliFrom - $hmmFrom) * 3);
     my $SimiStartInAA = ($SimiStart - $StartOrf) / 3;
 
     my $startline          = ";;     G-$name $direction start";
