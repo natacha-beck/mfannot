@@ -1954,10 +1954,10 @@ sub AddCommentForStart {
     if ((ref($hypprot) && $hypprot->isa('PirObject::AnnotPair'))) {
         $warning     .= "$extra_comment" if $extra_comment ne "";
         my $startline = $hypprot->get_startline();
-        $startline    = $startline =~ /;;/ ?
-          $startline .   " $warning":
-          $startline . ";; $warning";
-        $hypprot->set_startline($hypprot->get_startline() . "$warning");
+        $startline    = $startline =~ /\.+;;/ ?
+          $startline . " $warning":
+          $startline . " ;; $warning";
+        $hypprot->set_startline($startline);
     }
     if ((ref($hypprot) && $hypprot->isa('PirObject::HypProt'))) {
         $hypprot->set_startwarning($warning);
@@ -1971,7 +1971,7 @@ sub AdjustStartAndEndByHMMForHMM {
     my $isMinus             = $direction eq "==>" ? 0 : 1;
     my $start               = $annot->get_SimiStart();
     my ($StartOrf,$EndOrf)  = ($1,$2) if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
-    my $end                 = $EndOrf;
+    my $end                 = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
 
 
     my $posHMMmatch         = $annot->get_posHMMmatch();
@@ -2033,6 +2033,7 @@ sub AdjustStartAndEndByHMMForHMM {
     # (i)   no proper translation codon identified,
     $new_start = $simi_start_in_aa;
     $new_start = $new_start < 0 ? 0 : $new_start;
+
     &ChangeAnnotVal($annot, $new_start, $StartOrf, $end, $isMinus, $seq);
     my $comment = "No proper translation codon identified";
 
@@ -2087,6 +2088,7 @@ sub AdjustStartAndEndByHMMForHMM {
 
     # Add comment on startline
     my $startline = $annot->get_startline();
+
     $startline    = $startline =~ /;;/ ?
       $startline .   " $comment":
       $startline . ";; $comment";
@@ -7428,7 +7430,7 @@ sub CreateAllGeneAnnotFindByHMM {
     my $OrfFile = "$HighDir/$contigname.orf";
 
     # Check and remove false intron.
-    $AllHMMAnnot = &CheckForFalseIntrons($AllHMMAnnot,$OrfFile,$contigname,$seq,$contiglen);
+    $AllHMMAnnot = &RemoveFalseIntrons($AllHMMAnnot,$OrfFile,$contigname,$seq,$contiglen);
     # Case of simple duplication
     $AllHMMAnnot = &CheckForDuplicate($AllHMMAnnot,$OrfFile);
 
@@ -7523,7 +7525,9 @@ sub CreateAllHMMAnnot {
     return $AllHMMAnnot;
 }
 
-sub CheckForFalseIntrons {
+# For each HMM match look if there is extra gap between matches
+# that need to be removed (alignments are in order + no intron identified)
+sub RemoveFalseIntrons {
     my ($AllHMMAnnot,$OrfFile,$contigname,$seq,$contiglen) = @_;
 
     my $stock_annot = [];
@@ -7532,13 +7536,17 @@ sub CheckForFalseIntrons {
 
         foreach my $Orf (keys %$AllHMMAnnotByGene) {
             my $annots = $AllHMMAnnotByGene->{$Orf}->[0];
+            # If only 1 match no false intron possible
             next if scalar(keys %$annots) == 1;
 
             my $resume    = $AllHMMAnnotByGene->{$Orf}->[1];
             my $isInOrder = &CheckHMMMatchOrder($resume);
+
+            # If not in order keep all the annots
             next if !$isInOrder;
 
-            # Make verification for intron position
+            # Make verification for intron position in each ORF if
+            # research of intron was not already done
             if ($LVL_INTRON == 1) {
                 my $description        = $resume->get_Description();
                 my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
@@ -7557,14 +7565,14 @@ sub CheckForFalseIntrons {
             }
 
             # Generation of gap list.
-            my $gap_list = &CreateGapList($resume,$name,$contigname);
+            my $gap_list = &GapsBetweemHMMMatches($resume,$name,$contigname);
+            # Add information for Overlapping gap
+            $gap_list    = &AddInfoForOVGaps($gap_list);
 
-            # Check if 2 gap is OV.
-            $gap_list    = &CheckIfTwoGapOV($gap_list);
-
-            # If 2 gap OV make fusion between ali "before" and "after" gap
+            # If 2 gaps Overlap make fusion between ali "before" and "after" gap
             my $alignments = $resume->get_alignments();
             ($gap_list,$alignments,$annots) = &RemoveFalseIntron($gap_list,$alignments,$annots);
+            # If no more gap see for next ORF
             next if (scalar keys(%$gap_list) == 0);
 
             # Extract intron annotations.
@@ -7581,69 +7589,80 @@ sub CheckForFalseIntrons {
                     $gap->{OVintron} = 1 if $isOV == 1;
                 }
             }
+            # If no intron in gap remove it
             ($gap_list,$alignments,$annots) = &RemoveFalseIntron($gap_list,$alignments,$annots);
         }
     }
     return $AllHMMAnnot;
 }
 
+# Check if alignements order are the same as hmm order
 sub CheckHMMMatchOrder {
     my $resume = shift;
 
-    my $alignments = $resume->get_alignments();
+    my $alignments   = $resume->get_alignments();
     my $prev_hmmFrom = -1;
     my $isOk = 1;
+
+    # Sort alignments by aliFrom and check if hmmFrom is in order
     foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
         my $ali = $alignments->{$key};
         my ($aliFrom,$hmmFrom) = ($ali->{aliFrom},$ali->{hmmFrom});
+        # Only in case of 1st iteration
         if ($prev_hmmFrom == -1) {
             $prev_hmmFrom = $hmmFrom;
             next;
         }
         else {
-            $isOk = 0 if $prev_hmmFrom > $hmmFrom;
             # As we sort ali by aliTo this test is enough to check good order.
+            $isOk = 0 if $prev_hmmFrom > $hmmFrom;
         }
     }
     return $isOk;
 }
 
-sub CreateGapList {
+# Iterate over the alignments to define a list of gap between matches
+sub GapsBetweemHMMMatches {
     my ($resume,$name,$contigname) = @_;
 
     my $alignments = $resume->get_alignments();
-    my $gap_list   = {};
-    my $start_gap  = 0;
-    my ($cnt_gl,$cnt_gap) = (0,0);
+    my $start_end_dir = [];
+    # Iterate over alignments to find start and end of each match (+direction)
     foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
-        my $ali = $alignments->{$key};
+        my $ali                  = $alignments->{$key};
         my ($SimiStart,$SimiEnd) = &GetSimilarityPos($resume,$ali);
+
         my $description          = $resume->get_Description();
         my $direction            = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
 
-        if ($cnt_gl % 2 == 0) {
-            $start_gap = $SimiEnd;
-        }
-        else {
-            my $addToStart = $direction eq "==>" ?  1 : -1;
-            my $addToEnd   = $direction eq "==>" ? -1 :  1;
-
-            $gap_list->{$cnt_gap} = { start => $start_gap + $addToStart, end => $SimiStart + $addToEnd, dir => $direction};
-            $cnt_gap++
-        }
-        $cnt_gl++;
+        push(@$start_end_dir,[$SimiStart,$SimiEnd,$direction]);
     }
+
+
+    my $gap_list   = {};
+    # Iterate over start_end_dir to find gap between matches
+    for (my $i = 0; $i < scalar(@$start_end_dir)-1; $i++) {
+        my $gap_dir   = $start_end_dir->[$i]->[2];
+        my $gap_start = $start_end_dir->[$i]->[1];
+        my $gap_end   = $start_end_dir->[$i+1]->[0];
+
+        $gap_list->{$i} = { start => $gap_start, end => $gap_end, dir => $gap_dir};
+    }
+
     return $gap_list;
 }
 
 sub RemoveFalseIntron {
     my ($gap_list,$alignments,$annots) = @_;
 
-    my $cnt = 0;
-    my $prev_key = "";
+    my $cnt            =  0;
+    my $prev_key       = "";
     my $allposHMMmatch = [];
-    foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
 
+    # Iterate over each alignments to remove false intron
+    # Remove extra gap in gap_list
+    # Fix values in alignments and annots
+    foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
         my $annot        = $annots->{$key};
         my $posHMMmatch  = $annot->get_posHMMmatch();
         push(@$allposHMMmatch,$posHMMmatch);
@@ -7657,6 +7676,7 @@ sub RemoveFalseIntron {
         my $OV       = $gap->{OV}       || 0;
         my $OVintron = $gap->{OVintron} || 0;
 
+        # If no intron in gap and no overlapping gap
         if ($OV == 0 && $OVintron == 1) {
             $cnt++; next;
         }
@@ -7667,7 +7687,7 @@ sub RemoveFalseIntron {
 
         my $From_key   = $prev_key;
         my $To_key     = $ali->{aliTo}  > $prev_ali->{aliTo}  ? $key : $prev_key;
-        # Perahps not the better approximation
+        # Perhaps not the better approximation
         my $evalue_key = $ali->{Cvalue} < $prev_ali->{Cvalue} ? $key : $prev_key;
 
         $ali->{aliFrom} = $alignments->{$From_key}->{aliFrom};
@@ -7719,6 +7739,8 @@ sub ExtractIntronsList {
     return $introns_list;
 }
 
+
+# Issue we only look for 2 matches
 sub CheckForDuplicate {
     my ($AllHMMAnnot,$OrfFile) = @_;
 
@@ -7744,7 +7766,7 @@ sub CheckForDuplicate {
             }
         }
         $isDup = &CheckIfHMMERFindADuplicate($resume1,$resume2,$OrfFile) if $resume1 ne "";
-        return $AllHMMAnnot if $isDup == 0;
+        return $AllHMMAnnot if !$isDup;
     }
 
     foreach my $name (keys %$AllHMMAnnot) {
@@ -7821,13 +7843,12 @@ sub SortHMMAnnot {
     return ($sort_annots_simple,$sort_annots_complex);
 }
 
+# A quick pass to remove keep only one annot in case of duplicate
+# same genename and same IdORF, remove the one with the lowest score
 sub MakeSelectionForSimpleCase {
     my ($sort_annots_simple,$contig) = @_;
 
-    # A quick pass to remove keep only one annot in case of duplicate
-    # same genename and same IdORF, remove the one with the lowest score
     my $sort_annots_simple_wo_dup = [];
-
     foreach my $annot (@$sort_annots_simple) {
         my $genename = $annot->get_genename();
         my $IdORF    = $annot->get_IdORF();
@@ -8200,7 +8221,7 @@ sub CreateAnnotCommentForHMM {
     return $annot;
 }
 
-sub CheckIfTwoGapOV {
+sub AddInfoForOVGaps {
     my $gap_list = shift;
 
     foreach my $key (sort { $a <=> $b } keys(%$gap_list)) {
@@ -8220,6 +8241,8 @@ sub CheckIfTwoGapOV {
     return $gap_list;
 }
 
+# Return start and end of similiraty in nt position in the full
+# genomic sequence
 sub GetSimilarityPos {
     my ($resume,$ali) = @_;
 
@@ -8229,7 +8252,7 @@ sub GetSimilarityPos {
     # Treat information of ali and initialize
     my ($aliFrom,$aliTo) = ($ali->get_aliFrom(),$ali->get_aliTo());
     my $SimiStart = $direction eq "==>" ? $StartOrf+(($aliFrom-1)*3) : $StartOrf-(($aliFrom-1)*3);
-    my $SimiEnd   = $direction eq "==>" ? $StartOrf+(($aliTo)*3 -1) : $StartOrf-(($aliTo)*3+1);
+    my $SimiEnd   = $direction eq "==>" ? $StartOrf+(($aliTo)*3)     : $StartOrf-(($aliTo)*3);
 
     return ($SimiStart,$SimiEnd);
 }
