@@ -1978,9 +1978,9 @@ sub AdjustStartAndEndByHMMForHMM {
     my $hmm_matches_comment = "";
     my $hmm_matches         = join(", ",@{$annot->get_allposHMMmatch()});
     if ($hmm_matches ne "") {
-        $hmm_matches_comment = " HMM matches from $hmm_matches.";
+        $hmm_matches_comment = "HMM matches from $hmm_matches.";
     } elsif ($posHMMmatch ne "") {
-        $hmm_matches_comment = " HMM match from $posHMMmatch.";
+        $hmm_matches_comment = "HMM match from $posHMMmatch.";
     }
 
     # If start is negative, we set it to the start of the ORF
@@ -6376,7 +6376,9 @@ sub AnnotateEmptyOrfs {
             foreach my $AP_who_overlap (@$list_who_overlap ) {
                 my $annot = $AP_who_overlap->[2];
                 my $name  = $annot->get_genename();
-                next if !($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i);
+                my $AP_ov_isMinus = $annot->get_direction() eq "==>" ? 0 : 1;
+                next if !($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i) &&
+                        $AP_ov_isMinus == $isMinus;
                 push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
             }
         }
@@ -7857,6 +7859,9 @@ sub MakeSelectionForSimpleCase {
         next if (grep { $_->get_genename() eq $genename && $_->get_IdORF() eq $IdORF } @$sort_annots_simple_wo_dup);
         push(@$sort_annots_simple_wo_dup,$annot);
     }
+
+    # If only one annot return it
+    return $sort_annots_simple_wo_dup if scalar(@$sort_annots_simple_wo_dup) == 1;
 
     my $new_sort = [];
     my $contiglen  = $contig->get_sequencelength();
