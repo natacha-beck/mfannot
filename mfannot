@@ -1810,11 +1810,10 @@ sub AdjustStartByHMMForBLASTandExonerate {
 
         ## Look for M start in a short aa window ##
         my $filtered_short_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
-                                                                                 $start_in_closest_homologous,
-                                                                                 $SHORT_RANGE_START_UPSTREAM,
-                                                                                 $SHORT_RANGE_START_DOWNSTREAM,
-                                                                                 length($full5),
-                                                                                 1);
+                                                                                   $start_in_closest_homologous,
+                                                                                   $SHORT_RANGE_START_UPSTREAM,$SHORT_RANGE_START_DOWNSTREAM,
+                                                                                   length($full5),
+                                                                                   1);
 
         my $new_start = (sort { $a <=> $b } keys %$filtered_short_ATG_possible_start)[0];
         if (defined $new_start) {
@@ -1845,8 +1844,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $closest_start_pos           = $start_pos_cmp_start_orf->{"a"};
     my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
                                                                         $closest_start_pos,
-                                                                        10,
-                                                                        3,
+                                                                        10,3,
                                                                         length($full5),
                                                                         1);
 
@@ -1863,8 +1861,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     ## Look for start in a -10 upstream and +3 downstream aa window ##
     my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
                                                                         $closest_start_pos,
-                                                                        10,
-                                                                        3,
+                                                                        10,3,
                                                                         length($full5),
                                                                         0);
 
@@ -1991,8 +1988,7 @@ sub AdjustStartAndEndByHMMForHMM {
     my $simi_start_in_aa            = $annot->get_SimiStartInAA();
     my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
                                                                         $simi_start_in_aa,
-                                                                        10,
-                                                                        3,
+                                                                        10,3,
                                                                         length($full5),
                                                                         1);
 
@@ -2009,8 +2005,7 @@ sub AdjustStartAndEndByHMMForHMM {
     # Filter all possible start in the -10 upstream and +3 downstream aa window
     my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
                                                                         $simi_start_in_aa,
-                                                                        10,
-                                                                        3,
+                                                                        10,3,
                                                                         length($full5),
                                                                         0);
 
