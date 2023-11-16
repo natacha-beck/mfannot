@@ -1861,16 +1861,14 @@ sub AdjustStartByHMMForBLASTandExonerate {
     }
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
-    # Filter all possible start in the -10 upstream and +3 downstream aa window
-    my $limit_5                     = $closest_start_pos - 10;
-    my $limit_3                     = $closest_start_pos + 3;
-       $limit_5                     = 0 if $limit_5 < 0;
-       $limit_3                     = length($full5) if $limit_3 > length($full5);
-       $limit_3                     = 0 if $limit_3 < 0;
+    my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
+                                                                        $closest_start_pos,
+                                                                        10,
+                                                                        3,
+                                                                        length($full5),
+                                                                        0);
 
-    my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 0);
-    $new_start                   = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
-
+    $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
 
@@ -2106,7 +2104,7 @@ sub FilterAllPossibleStartWithinRange {
        $limit_3 = 0            if $limit_3 < 0;
        $limit_3 = $full_length if $limit_3 > $full_length;
 
-    my $filtered_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 1);
+    my $filtered_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, $only_ATG);
 
     return $filtered_start;
 }
