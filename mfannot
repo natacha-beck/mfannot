@@ -1876,16 +1876,14 @@ sub AdjustStartByHMMForBLASTandExonerate {
         return;
     }
 
-    ## No start found, set start at position in closest homologous ##
-    ## comment about valid start codon found                       ##
     my ($comment,$first_upstream_atg,$first_downstream_atg) = &SetStartAccordingToHomologousAndReturnComment($start_pos_cmp_start_orf->{"a"}, $hypprot, undef, $pos_hyp_start_in_full5, $end,$isMinus,$seq,length($full5),$all_possible_start);
-
-    # (iii) first upstream alternative start codon (gc=...) at position Z      and if there is none whatsoever, comment= no valid start codon found
-    my $alternative_start_comment = &GetAlternativeStartComment($all_possible_start,
+    my $alternative_start_comment                           = &GetAlternativeStartComment(
+                                                                $all_possible_start,
                                                                 $closest_start_pos,
                                                                 length($full5),
                                                                 $comment,
                                                                 $pos_hyp_start_in_full5,
+                                                                undef,
                                                                 $first_upstream_atg,
                                                                 $first_downstream_atg,
                                                                 $hypprot,
@@ -1975,43 +1973,26 @@ sub AdjustStartAndEndByHMMForHMM {
     }
 
     #--------------------------------------------------------------
-    # No start found, set start at position in closest homologous ##
-    # comment about valid start codon found                       ##
     my ($comment,$first_upstream_atg,$first_downstream_atg) = &SetStartAccordingToHomologousAndReturnComment($simi_start_in_aa, $annot, $StartOrf, undef, $end,$isMinus,$seq,length($full5),$all_possible_start,$hmm_matches_comment);
-
-    # (iii) first upstream alternative start codon (gc=...) at position Z      and if there is none whatsoever, comment= no valid start codon found
-    # Annotate first upstream alternative start codon
-    my $filtered_upstream_start = &FilterAllPossibleStart($all_possible_start,0,$simi_start_in_aa, 0);
-    my $first_upstream_start    = (sort { $a <=> $b } keys %$filtered_upstream_start)[-1];
-    if (
-        defined $first_upstream_start &&
-        defined $first_upstream_atg   &&
-        $first_upstream_start != $first_upstream_atg
-       ) {
-        my $first_upstream_start_pos = !$isMinus ? $StartOrf + ($first_upstream_start*3) : $StartOrf - ($first_upstream_start*3);
-        my $tri_nt = &Get_nt_seq($seq,$first_upstream_start_pos,$isMinus ? $first_upstream_start_pos-3 : $first_upstream_start_pos+3,$isMinus);
-        $comment .= ", first upstream alternative start codon (gc=$tri_nt) at position $first_upstream_start_pos";
-    }
-
-    # Annotate first downstream alternative start codon
-    my $filtered_downstream_start = &FilterAllPossibleStart($all_possible_start,$simi_start_in_aa,length($full5), 0);
-    my $first_downstream_start    = (sort { $a <=> $b } keys %$filtered_downstream_start)[0];
-    if (
-        defined $first_downstream_start &&
-        defined $first_downstream_atg   &&
-        $first_downstream_start != $first_downstream_atg
-        ) {
-        my $first_downstream_start_pos    = !$isMinus ? $StartOrf + ($first_downstream_start*3) : $StartOrf - ($first_downstream_start*3);
-        my $tri_nt = &Get_nt_seq($seq,$first_downstream_start_pos,$isMinus ? $first_downstream_start_pos-2 : $first_downstream_start_pos+2,$isMinus);
-        $comment .= ", first downstream alternative start codon  (gc=$tri_nt) at position $first_downstream_start_pos";
-    }
+    my $alternative_start_comment                           = &GetAlternativeStartComment(
+                                                                $all_possible_start,
+                                                                $simi_start_in_aa,
+                                                                length($full5),
+                                                                $comment,
+                                                                undef,
+                                                                $StartOrf,
+                                                                $first_upstream_atg,
+                                                                $first_downstream_atg,
+                                                                $annot,
+                                                                $seq,
+                                                                $isMinus);
 
     # Add comment on startline
     my $startline = $annot->get_startline();
 
     $startline    = $startline =~ /;;/ ?
-      $startline .   " $comment":
-      $startline . ";; $comment";
+      $startline .   " $alternative_start_comment":
+      $startline . ";; $alternative_start_comment";
     $annot->set_startline($startline);
     return;
 }
@@ -2054,6 +2035,8 @@ sub ChangeAnnotVal {
     $annot->set_endpos($end);
 }
 
+# No start found, set start at position in closest homologous
+# comment about valid start codon found
 sub SetStartAccordingToHomologousAndReturnComment {
     my ($simi_start, $annot, $StartOrf, $pos_hyp_start_in_full5, $end, $isMinus, $seq, $full_length, $all_possible_start) = @_;
 
@@ -2104,9 +2087,10 @@ sub SetStartAccordingToHomologousAndReturnComment {
     return ($comment, $first_upstream_atg, $first_downstream_atg);
 }
 
+# Comment first upstream alternative start codon (gc=...) at position Z
 sub GetAlternativeStartComment {
-    my ($all_possible_start, $closest_start_pos, $length_full5, $comment, $hyp_start_pos,
-        $first_upstream_atg,$first_downstream_atg,$hypprot,$seq,$isMinus) = @_;
+    my ($all_possible_start, $closest_start_pos, $length_full5, $comment, $hyp_start_pos, $StartOrf,
+        $first_upstream_atg,$first_downstream_atg,$annot,$seq,$isMinus) = @_;
 
     # Annotate first upstream alternative start codon
     my $filtered_upstream_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 0);
@@ -2116,9 +2100,13 @@ sub GetAlternativeStartComment {
         defined $first_upstream_atg   &&
         $first_upstream_start != $first_upstream_atg
        ) {
-        my $first_upstream_start_pos = $first_upstream_start - $hyp_start_pos;
-        $first_upstream_start_pos    = &ChangeStart($hypprot->get_start, $first_upstream_start_pos, $isMinus,$seq);
-
+        my $first_upstream_start_pos = undef;
+        if (ref($annot) && $annot->isa('PirObject::AnnotPair')) {
+            $first_upstream_start_pos = !$isMinus ? $StartOrf + ($first_upstream_start*3) : $StartOrf - ($first_upstream_start*3);
+        } elsif (ref($annot) && $annot->isa('PirObject::HypProt')) {
+            $first_upstream_start_pos = $first_upstream_start - $hyp_start_pos;
+            $first_upstream_start_pos = &ChangeStart($annot->get_start, $first_upstream_start_pos, $isMinus,$seq);
+        }
         my $tri_nt = &Get_nt_seq($seq,$first_upstream_start_pos,$isMinus ? $first_upstream_start_pos-3 : $first_upstream_start_pos+3,$isMinus);
         $comment .= ", first upstream alternative start codon (gc=$tri_nt) at position $first_upstream_start_pos";
     }
@@ -2131,8 +2119,13 @@ sub GetAlternativeStartComment {
         defined $first_downstream_atg   &&
         $first_downstream_start != $first_downstream_atg
         ) {
-        my $first_downstream_start_pos = $first_downstream_start - $hyp_start_pos;
-        $first_downstream_start_pos    = &ChangeStart($hypprot->get_start, $first_downstream_start_pos, $isMinus,$seq);
+        my $first_downstream_start_pos = undef;
+        if (ref($annot) && $annot->isa('PirObject::AnnotPair')) {
+            $first_downstream_start_pos    = !$isMinus ? $StartOrf + ($first_downstream_start*3) : $StartOrf - ($first_downstream_start*3);
+        } elsif (ref($annot) && $annot->isa('PirObject::HypProt')) {
+            $first_downstream_start_pos = $first_downstream_start - $hyp_start_pos;
+            $first_downstream_start_pos    = &ChangeStart($annot->get_start, $first_downstream_start_pos, $isMinus,$seq);
+        }
         my $tri_nt = &Get_nt_seq($seq,$first_downstream_start_pos,$isMinus ? $first_downstream_start_pos-2 : $first_downstream_start_pos+2,$isMinus);
         $comment .= ", first downstream alternative start codon  (gc=$tri_nt) at position $first_downstream_start_pos";
     }
