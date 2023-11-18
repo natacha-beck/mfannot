@@ -185,6 +185,7 @@ my $LIGHT;                                      # Don't run endonuclease search 
 my $USEPRM;                                     # Set to 1 if user want to use .prm file
 my $SQN_FORMAT;                                 # Boolean if set does the converstion mf -> sqn
 my $TBL_FORMAT;                                 # Boolean if set save tbl output
+my $GBK_FORMAT;                                 # Boolean if set save gbk output
 my $ENDO_HASH = {};                             # Hash with endonuclease list.
 
 $ENDO_HASH->{"HNH"}++; $ENDO_HASH->{"GIY-YIG"}++ ;$ENDO_HASH->{"LAGLIDADG"}++;
@@ -208,6 +209,7 @@ my $HMMSEARCHPATH           = &GetPath("hmmsearch");
 my $EXONERATEPATH           = &GetPath("exonerate");
 my $GETORFPATH              = &GetPath("getorf");
 my $MF2SQNPATH              = &GetPath("mf2sqn");
+my $ASN2GBPATH              = &GetPath("asn2gb");
 
 # First get option in order to check some variables.
 &GetOptions ;     # Get the different options and put them into global variables
@@ -541,7 +543,8 @@ undef $EMPTYORFS;
 print "Writing new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
-&CreateTBLoutput($OUTPUTFILE) if $SQN_FORMAT || $TBL_FORMAT;
+&CreateTBLoutput($OUTPUTFILE) if $SQN_FORMAT || $TBL_FORMAT || $GBK_FORMAT;
+&CreateGBKoutput($OUTPUTFILE) if $GBK_FORMAT;
 
 if (0) {
 print "Writing PirMaster object to $OUTPUTFILE.xml\n";
@@ -682,6 +685,7 @@ sub GetOptions {
     $LIGHT                   = $option->light;             # Don't search for endonuclease and don't search all gene by HMM
     $SQN_FORMAT              = $option->sqnformat;         # If true do mf -> sqn conversion
     $TBL_FORMAT              = $option->tblformat;         # If true save tbl file
+    $GBK_FORMAT              = $option->gbkformat;         # If true save gbk file
     $TMPDIR                  = $option->tmpdir;            # Temporary work directory
     $USEPRM                  = $option->prm;               # 1 if user want use .prm
 
@@ -9149,6 +9153,38 @@ sub CreateTBLoutput {
         }
     }
 
+    chdir("$initial_dir");
+}
+
+sub CreateGBKoutput {
+    my $filename = shift;
+
+    # First pass in mf2sqn to generate the subInfo.
+    my $initial_dir = getcwd;
+    chdir("$TMPDIR");
+
+    my $basename     = basename($filename);
+
+    my $asn2gbErr   = "$TMPDIR/asn2gbErr";
+    my $asn2gbOut   = "$TMPDIR/asn2gbOut";
+    my $cmd = "$ASN2GBPATH -i $TMPDIR/$basename.sqn -o $basename.gbk";
+    print STDERR $cmd if $DEBUG;
+    my $ret = system("$cmd > $asn2gbOut 2> $asn2gbErr");
+
+    if (($ret >> 8) > 1) {
+        print STDERR "There was an error running asn2gb.\n";
+        print STDERR "Content of STDERR output:\n";
+        system("cat",$asn2gbErr);
+    }
+
+    if ($GBK_FORMAT) {
+        if (-e "$initial_dir/$basename.gbk") {
+            print "Cannot copy $basename.gbk the file already exist";
+        } else {
+           system("cp $basename.gbk $initial_dir/");
+           print "Writing new gbk file in $basename.gbk\n";
+        }
+    }
     chdir("$initial_dir");
 }
 
