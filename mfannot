@@ -1979,7 +1979,7 @@ sub AdjustStartAndEndByHMMForHMM {
     }
 
     #--------------------------------------------------------------
-    my ($comment,$first_upstream_atg,$first_downstream_atg) = &SetStartAccordingToHomologousAndReturnComment($simi_start_in_aa, $annot, $StartOrf, undef, $end,$isMinus,$seq,length($full5),$all_possible_start,$hmm_matches_comment);
+    my ($comment,$first_upstream_atg,$first_downstream_atg) = &SetStartAccordingToHomologousAndReturnComment($simi_start_in_aa, $annot, $StartOrf, $annot->get_SimiStartInAA(), $end,$isMinus,$seq,length($full5),$all_possible_start,$hmm_matches_comment);
     my $alternative_start_comment                           = &GetAlternativeStartComment(
                                                                 $all_possible_start,
                                                                 $simi_start_in_aa,
@@ -2014,7 +2014,6 @@ sub FilterAllPossibleStartWithinRange {
        $limit_5 = 0            if $limit_5 < 0;
        $limit_3 = 0            if $limit_3 < 0;
        $limit_3 = $full_length if $limit_3 > $full_length;
-
     my $filtered_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, $only_ATG);
 
     return $filtered_start;
@@ -2574,6 +2573,8 @@ sub DefineAllPossibleStart {
 # Filtered all possible start between 5 and 3 limit
 sub FilterAllPossibleStart {
     my ($all_possible_start,$five_start_limit,$three_start_limit, $ATG_only) = @_;
+
+    # print Data::Dumper->Dump([$all_possible_start,$five_start_limit,$three_start_limit, $ATG_only], [qw(*all_possible_start *five_start_limit *three_start_limit *ATG_only)]);
 
     my $filtered_all_possible_start = {};
     while ( my ($pos, $val) = each(%$all_possible_start) ) {
@@ -3380,6 +3381,7 @@ sub Add_comment_for_transpliced {
                                                  genename  => $name,
                                                  startpos  => $start,
                                                  endpos    => $end,
+                                                 direction => $arrow,
                                                  startline => ";; G-$name $arrow /note= likely split by linearization of a circular-mapping genome",
                                                  endline   => ";; G-$name  $arrow end",
                                                  );
@@ -8133,8 +8135,6 @@ sub FindStartAndStopForSimpleGeneIdByHMM {
 
 sub FindStartAndStopForComplexGeneIdByHMM {
     my ($annot,$tab_exons,$OrfFile,$seq) = @_;
-
-    print "IN FindStartAndStopForComplexGeneIdByHMM\n";
 
     # Change endpos
     my $EndOrf    = $1 if $tab_exons->[-1]->get_IdORF() =~ m/\[\s*\d+\s*-\s*(\d+)\s*\]/;
