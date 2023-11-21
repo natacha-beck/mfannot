@@ -1746,6 +1746,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $full5 = &GetFull5($seq,$isMinus,$protein_sequence,$start);
     $hypprot->set_full5($full5);
     my $pos_hyp_start_in_orf = length($full5) - length($protein_sequence);
+    my $StartOrf             = !$isMinus ? $start - ($pos_hyp_start_in_orf * 3) : $start + ($pos_hyp_start_in_orf * 3);
 
     # Create Seq for HMM and run HMM
     my ($this_fasta,$homo_fasta) = &ExtractLibSeqs($hypprot,$protein_sequence);
@@ -1803,7 +1804,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
 
         # Look for M only at the same place as the closest homologous
         if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous} && $aa && $aa eq "m") {
-            &ChangeHypProtValB($hypprot, $start_pos_cmp_to_orf->{$id}, $pos_hyp_start_in_orf, $isMinus, $seq);
+            &ChangeHypProtVal($hypprot, $start_in_closest_homologous, $StartOrf, $isMinus, $seq);
             return;
         }
 
@@ -1814,8 +1815,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
         my $new_start = (sort { $a <=> $b } keys %$filtered_short_ATG_possible_start)[0];
         if (defined $new_start) {
             &AddCommentForStart($hypprot, $new_start, $start_in_closest_homologous);
-            $new_start = &NewStartPos($new_start,$pos_hyp_start_in_orf);
-            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+            &ChangeHypProtVal($hypprot, $new_start, $StartOrf, $isMinus, $seq);
             return;
         }
     }
@@ -1827,8 +1827,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
         my $start_in_closest_homologous  = $start_pos_cmp_to_orf->{$id};
             # Look for all start only at the same place as the closest homologous
         if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
-            my $new_start = &NewStartPos($start_in_closest_homologous,$pos_hyp_start_in_orf);
-            &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+            &ChangeHypProtVal($hypprot, $start_in_closest_homologous, $StartOrf, $isMinus, $seq);
             return;
         }
     }
@@ -1842,8 +1841,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $new_start = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
-        $new_start = &NewStartPos($new_start,$pos_hyp_start_in_orf);
-        &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+        &ChangeHypProtVal($hypprot, $new_start , $StartOrf, $isMinus, $seq);
         return;
     }
 
@@ -1855,8 +1853,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
-        $new_start = &NewStartPos($new_start,$pos_hyp_start_in_orf);
-        &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+        &ChangeHypProtVal($hypprot, $new_start ,$StartOrf, $isMinus, $seq);
         return;
     }
 
@@ -1864,10 +1861,11 @@ sub AdjustStartByHMMForBLASTandExonerate {
     ## comment about valid start codon found                       ##
 
     # If no start found set start at position in closest homologous
-    $new_start = &NewStartPos($start_pos_cmp_to_orf->{"a"},$pos_hyp_start_in_orf);
-    $new_start = $new_start < 0 ? 0 : $new_start;
     # (i)   no proper translation codon identified,
-    &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+    my $new_start = $start_pos_cmp_to_orf->{"a"} < 0 ? 0 : $start_pos_cmp_to_orf->{"a"};
+    print Data::Dumper->Dump([$new_start],["new_start"]);
+
+    &ChangeHypProtVal($hypprot, $new_start, $StartOrf, $isMinus, $seq);
     my $comment = "No proper translation codon identified";
 
     # (ii)  first upstream ATG at position x, first downstream ATG in position Y,
@@ -2566,42 +2564,14 @@ sub FilterAllPossibleStartWithinRange {
 #   - the start of the hypprot.
 #   - the protein of the hypprot.
 sub ChangeHypProtVal {
-    my ($hypprot,$new_start,$isMinus,$seq) = @_;
-
-    my $old_start  = $hypprot->get_start;
-    my $end        = $hypprot->get_end;
-    my $name       = $hypprot->get_name;
-    my $exons      = $hypprot->get_exons();
-    my $start      = &ChangeStart($old_start,$new_start,$isMinus,$seq);
-
-    my $first_exon = $exons->[0]           if scalar(@$exons);
-
-    # Set the start position and the first exon start position
-    $hypprot->set_start($start);
-    $first_exon->set_dnastart($start) if $first_exon;
-
-    # Adjust the information about the protein
-    my $prot    = $hypprot->get_thisprot();
-    $hypprot->set_thisprot(substr($prot,int(($start-$old_start)/3)));
-}
-
-
-# Upddate values in the hypprot object
-# according to the new start:
-#   - the first_exon start if needed.
-#   - the start of the hypprot.
-#   - the protein of the hypprot.
-sub ChangeHypProtValB {
-    my ($hypprot,$start_pos_cmp_to_orf,$pos_hyp_start_in_orf,$isMinus,$seq) = @_;
+    my ($hypprot,$start_pos_cmp_to_orf,$StartOrf,$isMinus,$seq) = @_;
 
     my $old_start  = $hypprot->get_start;
     my $end        = $hypprot->get_end;
     my $name       = $hypprot->get_name;
     my $exons      = $hypprot->get_exons();
 
-    my $new_start  = $start_pos_cmp_to_orf - $pos_hyp_start_in_orf;
-    my $start      = &ChangeStart($old_start,$new_start,$isMinus,$seq);
-
+    my $start  = !$isMinus ? $StartOrf + ($start_pos_cmp_to_orf*3) : $StartOrf - ($start_pos_cmp_to_orf*3) ;
     my $first_exon = $exons->[0]           if scalar(@$exons);
 
     # Set the start position and the first exon start position
