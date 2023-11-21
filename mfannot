@@ -185,7 +185,6 @@ my $LIGHT;                                      # Don't run endonuclease search 
 my $USEPRM;                                     # Set to 1 if user want to use .prm file
 my $SQN_FORMAT;                                 # Boolean if set does the converstion mf -> sqn
 my $TBL_FORMAT;                                 # Boolean if set save tbl output
-my $GBK_FORMAT;                                 # Boolean if set save gbk output
 my $ENDO_HASH = {};                             # Hash with endonuclease list.
 
 $ENDO_HASH->{"HNH"}++; $ENDO_HASH->{"GIY-YIG"}++ ;$ENDO_HASH->{"LAGLIDADG"}++;
@@ -209,7 +208,6 @@ my $HMMSEARCHPATH           = &GetPath("hmmsearch");
 my $EXONERATEPATH           = &GetPath("exonerate");
 my $GETORFPATH              = &GetPath("getorf");
 my $MF2SQNPATH              = &GetPath("mf2sqn");
-my $ASN2GBPATH              = &GetPath("asn2gb");
 
 # First get option in order to check some variables.
 &GetOptions ;     # Get the different options and put them into global variables
@@ -543,8 +541,7 @@ undef $EMPTYORFS;
 print "Writing new masterfile in $OUTPUTFILE\n";
 $pirmaster->ObjectToMasterfile("$OUTPUTFILE");
 
-&CreateTBLoutput($OUTPUTFILE) if $SQN_FORMAT || $TBL_FORMAT || $GBK_FORMAT;
-&CreateGBKoutput($OUTPUTFILE) if $GBK_FORMAT;
+&CreateTBLoutput($OUTPUTFILE) if $SQN_FORMAT || $TBL_FORMAT;
 
 if (0) {
 print "Writing PirMaster object to $OUTPUTFILE.xml\n";
@@ -685,7 +682,6 @@ sub GetOptions {
     $LIGHT                   = $option->light;             # Don't search for endonuclease and don't search all gene by HMM
     $SQN_FORMAT              = $option->sqnformat;         # If true do mf -> sqn conversion
     $TBL_FORMAT              = $option->tblformat;         # If true save tbl file
-    $GBK_FORMAT              = $option->gbkformat;         # If true save gbk file
     $TMPDIR                  = $option->tmpdir;            # Temporary work directory
     $USEPRM                  = $option->prm;               # 1 if user want use .prm
 
@@ -1729,8 +1725,6 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $idByExo     = $hypprot->get_idbyexo() ? 1 : 0;
 
 
-    my $StartOrf = "";
-
     # Def end if gene with intron(s).
     &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq) if $idByExo;
 
@@ -1801,7 +1795,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     for (my $i=0; $i < @$homologous; $i++) {
         my $id = $homologous->[$i];
         my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{$id};
-        last if !$start_in_closest_homologous;
+        next if !$start_in_closest_homologous;
 
         my $aa = undef;
         if ($start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
@@ -1816,13 +1810,15 @@ sub AdjustStartByHMMForBLASTandExonerate {
         }
 
         ## Look for M start in a short aa window ##
-        my $filtered_short_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
-                                                                                   $start_in_closest_homologous,
-                                                                                   $SHORT_RANGE_START_UPSTREAM,$SHORT_RANGE_START_DOWNSTREAM,
-                                                                                   length($full5),
-                                                                                   1);
+        my $short_limit_5 = $start_in_closest_homologous - $SHORT_RANGE_START_UPSTREAM;
+           $short_limit_5 = 0 if $short_limit_5 < 0;
+        my $short_limit_3 = $start_in_closest_homologous + $SHORT_RANGE_START_DOWNSTREAM;
+           $short_limit_3 = 0 if $short_limit_3 < 0;
+           $short_limit_3 = length($full5) if $short_limit_3 > length($full5);
 
-        my $new_start = (sort { $a <=> $b } keys %$filtered_short_ATG_possible_start)[0];
+        my $filtered_short_m_possible_start = &FilterAllPossibleStart($all_possible_start,$short_limit_5,$short_limit_3, 1);
+
+        my $new_start = (sort { $a <=> $b } keys %$filtered_short_m_possible_start)[0];
         if (defined $new_start) {
             &AddCommentForStart($hypprot, $new_start, $start_in_closest_homologous);
 
@@ -1846,17 +1842,20 @@ sub AdjustStartByHMMForBLASTandExonerate {
     }
 
     ## Look for M start in a -10 upstream and +3 downstream aa window ##
+
     # Take the first homologous and look for start in a -10 upstream and +3 downstream aa window
-    # Filter all possible M start in the -10 upstream and +3 downstream aa window
     my $closest_start_pos           = $start_pos_cmp_start_orf->{"a"};
-    my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
-                                                                        $closest_start_pos,
-                                                                        10,3,
-                                                                        length($full5),
-                                                                        1);
+    my $limit_5                     = $closest_start_pos - 10;
+    my $limit_3                     = $closest_start_pos + 3;
+       $limit_5                     = 0 if $limit_5 < 0;
+       $limit_3                     = length($full5) if $limit_3 > length($full5);
+       $limit_3                     = 0 if $limit_3 < 0;
+
+    # Filter all possible M start in the -10 upstream and +3 downstream aa window
+    my $filtered_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 1);
+    my $new_start                   = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
 
     # Check if start is defined or if it is 0
-    my $new_start = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
 
@@ -1866,13 +1865,11 @@ sub AdjustStartByHMMForBLASTandExonerate {
     }
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
-    my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
-                                                                        $closest_start_pos,
-                                                                        10,3,
-                                                                        length($full5),
-                                                                        0);
 
-    $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
+    # Filter all possible start in the -10 upstream and +3 downstream aa window
+    my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 0);
+    $new_start                   = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
+
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
 
@@ -1881,22 +1878,68 @@ sub AdjustStartByHMMForBLASTandExonerate {
         return;
     }
 
-    my $simi_start = $start_pos_cmp_start_orf->{"a"} - $pos_hyp_start_in_full5;
-    my ($comment,$first_upstream_atg,$first_downstream_atg) = &SetStartAccordingToHomologousAndReturnComment($simi_start, $hypprot, undef, $pos_hyp_start_in_full5, $end,$isMinus,$seq,length($full5),$all_possible_start);
-    my $alternative_start_comment                           = &GetAlternativeStartComment(
-                                                                $all_possible_start,
-                                                                $closest_start_pos,
-                                                                length($full5),
-                                                                $comment,
-                                                                $pos_hyp_start_in_full5,
-                                                                undef,
-                                                                $first_upstream_atg,
-                                                                $first_downstream_atg,
-                                                                $hypprot,
-                                                                $seq,
-                                                                $isMinus);
+    ## No start found, set start at position in closest homologous ##
+    ## comment about valid start codon found                       ##
 
-    $hypprot->set_startwarning($alternative_start_comment);
+    # If no start found set start at position in closest homologous
+    $new_start = $start_pos_cmp_start_orf->{"a"} - $pos_hyp_start_in_full5;
+    $new_start = $new_start < 0 ? 0 : $new_start;
+    # (i)   no proper translation codon identified,
+    &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
+    my $comment = "No proper translation codon identified";
+
+    # (ii)  first upstream ATG at position x, first downstream ATG in position Y,
+
+    # Annotate the first upstream ATG
+    my $filtered_upstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 1);
+    my $first_upstream_atg = (sort { $a <=> $b } keys %$filtered_upstream_ATG_possible_start)[-1];
+    if (defined $first_upstream_atg) {
+        my $first_upstream_atg_pos = $first_upstream_atg - $pos_hyp_start_in_full5;
+        $first_upstream_atg_pos    = &ChangeStart($hypprot->get_start, $first_upstream_atg_pos, $isMinus,$seq);
+        $comment .= ", first upstream ATG at position $first_upstream_atg_pos";
+    }
+
+    # Annotate the first downstream ATG
+    my $filtered_downstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$closest_start_pos,length($full5), 1);
+    my $first_downstream_atg                   = (sort { $a <=> $b } keys %$filtered_downstream_ATG_possible_start)[0];
+    if (defined $first_downstream_atg) {
+        my $first_downstream_atg_pos = $first_downstream_atg - $pos_hyp_start_in_full5;
+        $first_downstream_atg_pos    = &ChangeStart($hypprot->get_start, $first_downstream_atg_pos, $isMinus,$seq);
+        $comment .= ", first downstream ATG at position $first_downstream_atg_pos";
+    }
+
+    # (iii) first upstream alternative start codon (gc=...) at position Z      and if there is none whatsoever, comment= no valid start codon found
+
+    # Annotate first upstream alternative start codon
+    my $filtered_upstream_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 0);
+    my $first_upstream_start    = (sort { $a <=> $b } keys %$filtered_upstream_start)[-1];
+    if (
+        defined $first_upstream_start &&
+        defined $first_upstream_atg   &&
+        $first_upstream_start != $first_upstream_atg
+       ) {
+        my $first_upstream_start_pos = $first_upstream_start - $pos_hyp_start_in_full5;
+        $first_upstream_start_pos    = &ChangeStart($hypprot->get_start, $first_upstream_start_pos, $isMinus,$seq);
+
+        my $tri_nt = &Get_nt_seq($seq,$first_upstream_start_pos,$isMinus ? $first_upstream_start_pos-3 : $first_upstream_start_pos+3,$isMinus);
+        $comment .= ", first upstream alternative start codon (gc=$tri_nt) at position $first_upstream_start_pos";
+    }
+
+    # Annotate first downstream alternative start codon
+    my $filtered_downstream_start = &FilterAllPossibleStart($all_possible_start,0,length($full5), 0);
+    my $first_downstream_start    = (sort { $a <=> $b } keys %$filtered_downstream_start)[0];
+    if (
+        defined $first_downstream_start &&
+        defined $first_downstream_atg   &&
+        $first_downstream_start != $first_downstream_atg
+        ) {
+        my $first_downstream_start_pos = $first_downstream_start - $pos_hyp_start_in_full5;
+        $first_downstream_start_pos    = &ChangeStart($hypprot->get_start, $first_downstream_start_pos, $isMinus,$seq);
+        my $tri_nt = &Get_nt_seq($seq,$first_downstream_start_pos,$isMinus ? $first_downstream_start_pos-2 : $first_downstream_start_pos+2,$isMinus);
+        $comment .= ", first downstream alternative start codon  (gc=$tri_nt) at position $first_downstream_start_pos";
+    }
+
+    $hypprot->set_startwarning($comment);
     return;
 }
 
@@ -1927,34 +1970,42 @@ sub AdjustStartAndEndByHMMForHMM {
 
     my $direction           = $annot->get_direction();
     my $isMinus             = $direction eq "==>" ? 0 : 1;
+    my $start               = $annot->get_SimiStart();
     my ($StartOrf,$EndOrf)  = ($1,$2) if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
     my $end                 = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
+
 
     my $posHMMmatch         = $annot->get_posHMMmatch();
     my $hmm_matches_comment = "";
     my $hmm_matches         = join(", ",@{$annot->get_allposHMMmatch()});
     if ($hmm_matches ne "") {
-        $hmm_matches_comment = "HMM matches from $hmm_matches.";
+        $hmm_matches_comment = " HMM matches from $hmm_matches.";
     } elsif ($posHMMmatch ne "") {
-        $hmm_matches_comment = "HMM match from $posHMMmatch.";
+        $hmm_matches_comment = " HMM match from $posHMMmatch.";
     }
 
-    # Extract all possible start
+    # If start is negative, we set it to the start of the ORF
+    $start  = $StartOrf if ($start < $StartOrf && !$isMinus);
+    $start  = $StartOrf if ($start > $StartOrf &&  $isMinus);
+
+    my $simi_start_in_aa   = $annot->get_SimiStartInAA();
     my $this_prot          = &GetProteinForGeneWithoutIntrons($seq, $StartOrf, $end, $isMinus);
     my $full5              = &GetFull5($seq,$isMinus,$this_prot,$StartOrf);
     my $all_possible_start = &DefineAllPossibleStart($full5);
 
     ## Look for M start in a -10 upstream and +3 downstream aa window ##
     # Take the first homologous and look for start in a -10 upstream and +3 downstream aa window
-    my $simi_start_in_aa            = $annot->get_SimiStartInAA();
-    my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
-                                                                        $simi_start_in_aa,
-                                                                        10,3,
-                                                                        length($full5),
-                                                                        1);
+    my $limit_5                     = $simi_start_in_aa - 10;
+    my $limit_3                     = $simi_start_in_aa + 3;
+       $limit_5                     = 0 if $limit_5 < 0;
+       $limit_3                     = length($full5) if $limit_3 > length($full5);
+       $limit_3                     = 0 if $limit_3 < 0;
+
+    # Filter all possible M start in the -10 upstream and +3 downstream aa window
+    my $filtered_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 1);
+    my $new_start                   = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
 
     # Check if start is defined or if it is 0
-    my $new_start                   = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($annot, $new_start, $simi_start_in_aa, $hmm_matches_comment);
 
@@ -1964,13 +2015,9 @@ sub AdjustStartAndEndByHMMForHMM {
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
     # Filter all possible start in the -10 upstream and +3 downstream aa window
-    my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,
-                                                                        $simi_start_in_aa,
-                                                                        10,3,
-                                                                        length($full5),
-                                                                        0);
-
+    my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 0);
     $new_start                   = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
+
     if (defined $new_start) {
         &AddCommentForStart($annot, $new_start, $simi_start_in_aa, $hmm_matches_comment);
 
@@ -1979,44 +2026,76 @@ sub AdjustStartAndEndByHMMForHMM {
     }
 
     #--------------------------------------------------------------
-    my ($comment,$first_upstream_atg,$first_downstream_atg) = &SetStartAccordingToHomologousAndReturnComment($simi_start_in_aa, $annot, $StartOrf, $annot->get_SimiStartInAA(), $end,$isMinus,$seq,length($full5),$all_possible_start,$hmm_matches_comment);
-    my $alternative_start_comment                           = &GetAlternativeStartComment(
-                                                                $all_possible_start,
-                                                                $simi_start_in_aa,
-                                                                length($full5),
-                                                                $comment,
-                                                                undef,
-                                                                $StartOrf,
-                                                                $first_upstream_atg,
-                                                                $first_downstream_atg,
-                                                                $annot,
-                                                                $seq,
-                                                                $isMinus);
+
+    # No start found, set start at position in closest homologous ##
+    # comment about valid start codon found                       ##
+
+    # If no start found set start at position in closest homologous
+    # (i)   no proper translation codon identified,
+    $new_start = $simi_start_in_aa;
+    $new_start = $new_start < 0 ? 0 : $new_start;
+
+    &ChangeAnnotVal($annot, $new_start, $StartOrf, $end, $isMinus, $seq);
+    my $comment = "No proper translation codon identified";
+
+    # (ii)  first upstream ATG at position x, first downstream ATG in position Y,
+
+    $simi_start_in_aa = 0              if $simi_start_in_aa < 0;
+    $simi_start_in_aa = length($full5) if $simi_start_in_aa > length($full5);
+
+    # Annotate the first upstream ATG
+    my $filtered_upstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,$simi_start_in_aa, 1);
+    my $first_upstream_atg = (sort { $a <=> $b } keys %$filtered_upstream_ATG_possible_start)[-1];
+    if (defined $first_upstream_atg) {
+        my $first_upstream_atg_pos    = !$isMinus ? $StartOrf + ($first_upstream_atg*3) : $StartOrf - ($first_upstream_atg*3);
+        $comment .= ", first upstream ATG at position $first_upstream_atg_pos";
+    }
+
+    # Annotate the first downstream ATG
+    my $filtered_downstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$simi_start_in_aa,length($full5), 1);
+    my $first_downstream_atg                   = (sort { $a <=> $b } keys %$filtered_downstream_ATG_possible_start)[0];
+    if (defined $first_downstream_atg) {
+        my $first_downstream_atg_pos = !$isMinus ? $StartOrf + ($first_downstream_atg*3) : $StartOrf - ($first_downstream_atg*3);
+        $comment .= ", first downstream ATG at position $first_downstream_atg_pos";
+    }
+
+    # (iii) first upstream alternative start codon (gc=...) at position Z      and if there is none whatsoever, comment= no valid start codon found
+
+    # Annotate first upstream alternative start codon
+    my $filtered_upstream_start = &FilterAllPossibleStart($all_possible_start,0,$simi_start_in_aa, 0);
+    my $first_upstream_start    = (sort { $a <=> $b } keys %$filtered_upstream_start)[-1];
+    if (
+        defined $first_upstream_start &&
+        defined $first_upstream_atg   &&
+        $first_upstream_start != $first_upstream_atg
+       ) {
+        my $first_upstream_start_pos = !$isMinus ? $StartOrf + ($first_upstream_start*3) : $StartOrf - ($first_upstream_start*3);
+        my $tri_nt = &Get_nt_seq($seq,$first_upstream_start_pos,$isMinus ? $first_upstream_start_pos-3 : $first_upstream_start_pos+3,$isMinus);
+        $comment .= ", first upstream alternative start codon (gc=$tri_nt) at position $first_upstream_start_pos";
+    }
+
+    # Annotate first downstream alternative start codon
+    my $filtered_downstream_start = &FilterAllPossibleStart($all_possible_start,$simi_start_in_aa,length($full5), 0);
+    my $first_downstream_start    = (sort { $a <=> $b } keys %$filtered_downstream_start)[0];
+    if (
+        defined $first_downstream_start &&
+        defined $first_downstream_atg   &&
+        $first_downstream_start != $first_downstream_atg
+        ) {
+        my $first_downstream_start_pos    = !$isMinus ? $StartOrf + ($first_downstream_start*3) : $StartOrf - ($first_downstream_start*3);
+        my $tri_nt = &Get_nt_seq($seq,$first_downstream_start_pos,$isMinus ? $first_downstream_start_pos-2 : $first_downstream_start_pos+2,$isMinus);
+        $comment .= ", first downstream alternative start codon  (gc=$tri_nt) at position $first_downstream_start_pos";
+    }
 
     # Add comment on startline
     my $startline = $annot->get_startline();
 
     $startline    = $startline =~ /;;/ ?
-      $startline .   " $alternative_start_comment":
-      $startline . ";; $alternative_start_comment";
+      $startline .   " $comment":
+      $startline . ";; $comment";
     $annot->set_startline($startline);
     return;
-}
 
-sub FilterAllPossibleStartWithinRange {
-    my ($all_possible_start,$start,$upstream_limit,$downstream_limit,$full_length,$only_ATG) = @_;
-
-    # Define the limit for the upstream and downstream
-    my $limit_5 = $start - $upstream_limit;
-    my $limit_3 = $start + $downstream_limit;
-
-    # Correct the limit if outside of the full ORF sequence
-       $limit_5 = 0            if $limit_5 < 0;
-       $limit_3 = 0            if $limit_3 < 0;
-       $limit_3 = $full_length if $limit_3 > $full_length;
-    my $filtered_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, $only_ATG);
-
-    return $filtered_start;
 }
 
 sub ChangeAnnotVal {
@@ -2038,103 +2117,6 @@ sub ChangeAnnotVal {
     $annot->set_startpos($new_start);
     # Set end
     $annot->set_endpos($end);
-}
-
-# No start found, set start at position in closest homologous
-# comment about valid start codon found
-sub SetStartAccordingToHomologousAndReturnComment {
-    my ($simi_start, $annot, $StartOrf, $pos_hyp_start_in_full5, $end, $isMinus, $seq, $full_length, $all_possible_start) = @_;
-
-    # If no start found set start at position in closest homologous
-    # (i)   no proper translation codon identified,
-    my $start = $simi_start;
-       $start = $start < 0 ? 0 : $start;
-
-    # Check if annot is an AnnotPair or an hypProt
-    (ref($annot) && $annot->isa('PirObject::AnnotPair')) ?
-        &ChangeAnnotVal($annot, $start, $StartOrf, $end, $isMinus, $seq) :
-        &ChangeHypProtVal($annot, $start, $isMinus, $seq);
-
-    my $comment = "No proper translation codon identified";
-
-    # (ii)  first upstream ATG at position x, first downstream ATG in position Y,
-    $simi_start = 0            if $simi_start < 0;
-    $simi_start = $full_length if $simi_start > $full_length;
-
-    # Annotate the first upstream ATG
-    my $filtered_upstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,$pos_hyp_start_in_full5, 1);
-    my $first_upstream_atg     = (sort { $a <=> $b } keys %$filtered_upstream_ATG_possible_start)[-1];
-    my $first_upstream_atg_pos = undef;
-    if (defined $first_upstream_atg) {
-        if (ref($annot) && $annot->isa('PirObject::AnnotPair')) {
-            $first_upstream_atg_pos = (!$isMinus ? $StartOrf + ($first_upstream_atg*3) : $StartOrf - ($first_upstream_atg*3));
-        } elsif (ref($annot) && $annot->isa('PirObject::HypProt')) {
-            $first_upstream_atg_pos = $first_upstream_atg - $pos_hyp_start_in_full5;
-            $first_upstream_atg_pos = &ChangeStart($annot->get_start, $first_upstream_atg_pos, $isMinus,$seq);
-        }
-        $comment .= ", first upstream ATG at position $first_upstream_atg_pos";
-    }
-
-    # Annotate the first downstream ATG
-    my $filtered_downstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$pos_hyp_start_in_full5,$full_length, 1);
-    my $first_downstream_atg                   = (sort { $a <=> $b } keys %$filtered_downstream_ATG_possible_start)[0];
-    my $first_downstream_atg_pos               = undef;
-    if (defined $first_downstream_atg) {
-        if (ref($annot) && $annot->isa('PirObject::AnnotPair')) {
-            $first_downstream_atg_pos = (!$isMinus ? $StartOrf + ($first_downstream_atg*3) : $StartOrf - ($first_downstream_atg*3));
-        } elsif (ref($annot) && $annot->isa('PirObject::HypProt')) {
-            $first_downstream_atg_pos = $first_downstream_atg - $pos_hyp_start_in_full5;
-            $first_downstream_atg_pos = &ChangeStart($annot->get_start, $first_downstream_atg_pos, $isMinus,$seq);
-        }
-        $comment .= ", first downstream ATG at position $first_downstream_atg_pos";
-    }
-
-    return ($comment, $first_upstream_atg, $first_downstream_atg);
-}
-
-# Comment first upstream alternative start codon (gc=...) at position Z
-sub GetAlternativeStartComment {
-    my ($all_possible_start, $closest_start_pos, $length_full5, $comment, $hyp_start_pos, $StartOrf,
-        $first_upstream_atg,$first_downstream_atg,$annot,$seq,$isMinus) = @_;
-
-    # Annotate first upstream alternative start codon
-    my $filtered_upstream_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 0);
-    my $first_upstream_start    = (sort { $a <=> $b } keys %$filtered_upstream_start)[-1];
-    if (
-        defined $first_upstream_start &&
-        defined $first_upstream_atg   &&
-        $first_upstream_start != $first_upstream_atg
-       ) {
-        my $first_upstream_start_pos = undef;
-        if (ref($annot) && $annot->isa('PirObject::AnnotPair')) {
-            $first_upstream_start_pos = !$isMinus ? $StartOrf + ($first_upstream_start*3) : $StartOrf - ($first_upstream_start*3);
-        } elsif (ref($annot) && $annot->isa('PirObject::HypProt')) {
-            $first_upstream_start_pos = $first_upstream_start - $hyp_start_pos;
-            $first_upstream_start_pos = &ChangeStart($annot->get_start, $first_upstream_start_pos, $isMinus,$seq);
-        }
-        my $tri_nt = &Get_nt_seq($seq,$first_upstream_start_pos,$isMinus ? $first_upstream_start_pos-3 : $first_upstream_start_pos+3,$isMinus);
-        $comment .= ", first upstream alternative start codon (gc=$tri_nt) at position $first_upstream_start_pos";
-    }
-
-    # Annotate first downstream alternative start codon
-    my $filtered_downstream_start = &FilterAllPossibleStart($all_possible_start,$closest_start_pos,$length_full5, 0);
-    my $first_downstream_start    = (sort { $a <=> $b } keys %$filtered_downstream_start)[0];
-    if (
-        defined $first_downstream_start &&
-        defined $first_downstream_atg   &&
-        $first_downstream_start != $first_downstream_atg
-        ) {
-        my $first_downstream_start_pos = undef;
-        if (ref($annot) && $annot->isa('PirObject::AnnotPair')) {
-            $first_downstream_start_pos    = !$isMinus ? $StartOrf + ($first_downstream_start*3) : $StartOrf - ($first_downstream_start*3);
-        } elsif (ref($annot) && $annot->isa('PirObject::HypProt')) {
-            $first_downstream_start_pos = $first_downstream_start - $hyp_start_pos;
-            $first_downstream_start_pos = &ChangeStart($annot->get_start, $first_downstream_start_pos, $isMinus,$seq);
-        }
-        my $tri_nt = &Get_nt_seq($seq,$first_downstream_start_pos,$isMinus ? $first_downstream_start_pos-2 : $first_downstream_start_pos+2,$isMinus);
-        $comment .= ", first downstream alternative start codon  (gc=$tri_nt) at position $first_downstream_start_pos";
-    }
-    return $comment;
 }
 
 sub ExtractLibSeqs {
@@ -2573,8 +2555,6 @@ sub DefineAllPossibleStart {
 # Filtered all possible start between 5 and 3 limit
 sub FilterAllPossibleStart {
     my ($all_possible_start,$five_start_limit,$three_start_limit, $ATG_only) = @_;
-
-    # print Data::Dumper->Dump([$all_possible_start,$five_start_limit,$three_start_limit, $ATG_only], [qw(*all_possible_start *five_start_limit *three_start_limit *ATG_only)]);
 
     my $filtered_all_possible_start = {};
     while ( my ($pos, $val) = each(%$all_possible_start) ) {
@@ -7882,9 +7862,6 @@ sub MakeSelectionForSimpleCase {
         push(@$sort_annots_simple_wo_dup,$annot);
     }
 
-    # If only one annot return it
-    return $sort_annots_simple_wo_dup if scalar(@$sort_annots_simple_wo_dup) == 1;
-
     my $new_sort = [];
     my $contiglen  = $contig->get_sequencelength();
 
@@ -9155,38 +9132,6 @@ sub CreateTBLoutput {
         }
     }
 
-    chdir("$initial_dir");
-}
-
-sub CreateGBKoutput {
-    my $filename = shift;
-
-    # First pass in mf2sqn to generate the subInfo.
-    my $initial_dir = getcwd;
-    chdir("$TMPDIR");
-
-    my $basename     = basename($filename);
-
-    my $asn2gbErr   = "$TMPDIR/asn2gbErr";
-    my $asn2gbOut   = "$TMPDIR/asn2gbOut";
-    my $cmd = "$ASN2GBPATH -i $TMPDIR/$basename.sqn -o $basename.gbk";
-    print STDERR $cmd if $DEBUG;
-    my $ret = system("$cmd > $asn2gbOut 2> $asn2gbErr");
-
-    if (($ret >> 8) > 1) {
-        print STDERR "There was an error running asn2gb.\n";
-        print STDERR "Content of STDERR output:\n";
-        system("cat",$asn2gbErr);
-    }
-
-    if ($GBK_FORMAT) {
-        if (-e "$initial_dir/$basename.gbk") {
-            print "Cannot copy $basename.gbk the file already exist";
-        } else {
-           system("cp $basename.gbk $initial_dir/");
-           print "Writing new gbk file in $basename.gbk\n";
-        }
-    }
     chdir("$initial_dir");
 }
 
