@@ -1745,7 +1745,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     # Define the full5 == 5'UTR + identified protein sequence
     my $full5 = &GetFull5($seq,$isMinus,$protein_sequence,$start);
     $hypprot->set_full5($full5);
-    my $pos_hyp_start_in_full5 = length($full5) - length($protein_sequence);
+    my $pos_hyp_start_in_orf = length($full5) - length($protein_sequence);
 
     # Create Seq for HMM and run HMM
     my ($this_fasta,$homo_fasta) = &ExtractLibSeqs($hypprot,$protein_sequence);
@@ -1763,16 +1763,16 @@ sub AdjustStartByHMMForBLASTandExonerate {
     # Def start position in homologous protein
     my $hyp_trim5                             = $each_trim5->{"myProt"} || 0;
     my $hyp_dash5                             = $each_dash5->{"myProt"} || 0;
-    my $start_pos_cmp_start_orf = {};
+    my $start_pos_cmp_to_orf = {};
     while (my ($id, $start_pos_in_homologous) = each(%$each_start)) {
         my $current_trim5              = $each_trim5->{$id} || 0;
         my $current_dash5              = $each_dash5->{$id} || 0;
 
-        my $cmp_start = $pos_hyp_start_in_full5 + ($hyp_trim5 - $current_trim5);
+        my $cmp_start = $pos_hyp_start_in_orf + ($hyp_trim5 - $current_trim5);
         my $dash_diff = $current_dash5 - $hyp_dash5;
         $cmp_start    = $cmp_start + $dash_diff;
 
-        $start_pos_cmp_start_orf->{$id} = $cmp_start;
+        $start_pos_cmp_to_orf->{$id} = $cmp_start;
     }
 
     # Def first exon if gene with intron(s).
@@ -1790,11 +1790,10 @@ sub AdjustStartByHMMForBLASTandExonerate {
     # Iterate over the 3 closest homologous proteins and
     # check if the start is found at the same position as the one in closest homologous
     # could be a M or not:
-
     my $homologous = ["a","b","c"];
     for (my $i=0; $i < @$homologous; $i++) {
         my $id = $homologous->[$i];
-        my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{$id};
+        my $start_in_closest_homologous  = $start_pos_cmp_to_orf->{$id};
         next if !defined $start_in_closest_homologous;
 
         my $aa = undef;
@@ -1804,25 +1803,19 @@ sub AdjustStartByHMMForBLASTandExonerate {
 
         # Look for M only at the same place as the closest homologous
         if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous} && $aa && $aa eq "m") {
-            my $new_start = $start_pos_cmp_start_orf->{$id} - $pos_hyp_start_in_full5;
+            my $new_start = &NewStartPos($start_pos_cmp_to_orf->{$id},$pos_hyp_start_in_orf);
             &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
             return;
         }
 
         ## Look for M start in a short aa window ##
-        my $short_limit_5 = $start_in_closest_homologous - $SHORT_RANGE_START_UPSTREAM;
-           $short_limit_5 = 0 if $short_limit_5 < 0;
-        my $short_limit_3 = $start_in_closest_homologous + $SHORT_RANGE_START_DOWNSTREAM;
-           $short_limit_3 = 0 if $short_limit_3 < 0;
-           $short_limit_3 = length($full5) if $short_limit_3 > length($full5);
+        my $filtered_short_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$start_in_closest_homologous, length($full5),
+                                                                                   $SHORT_RANGE_START_UPSTREAM,  $SHORT_RANGE_START_DOWNSTREAM, 1);
 
-        my $filtered_short_m_possible_start = &FilterAllPossibleStart($all_possible_start,$short_limit_5,$short_limit_3, 1);
-
-        my $new_start = (sort { $a <=> $b } keys %$filtered_short_m_possible_start)[0];
+        my $new_start = (sort { $a <=> $b } keys %$filtered_short_ATG_possible_start)[0];
         if (defined $new_start) {
             &AddCommentForStart($hypprot, $new_start, $start_in_closest_homologous);
-
-            $new_start = $new_start - $pos_hyp_start_in_full5;
+            $new_start = &NewStartPos($new_start,$pos_hyp_start_in_orf);
             &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
             return;
         }
@@ -1832,48 +1825,38 @@ sub AdjustStartByHMMForBLASTandExonerate {
     for (my $i=0; $i < @$homologous; $i++) {
         my $id = $homologous->[$i];
 
-        my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{$id};
+        my $start_in_closest_homologous  = $start_pos_cmp_to_orf->{$id};
             # Look for all start only at the same place as the closest homologous
         if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
-            my $new_start = $start_pos_cmp_start_orf->{$id} - $pos_hyp_start_in_full5;
+            my $new_start = &NewStartPos($start_in_closest_homologous,$pos_hyp_start_in_orf);
             &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
             return;
         }
     }
 
     ## Look for M start in a -10 upstream and +3 downstream aa window ##
+    my $closest_start_pos           = $start_pos_cmp_to_orf->{"a"};
+    my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$closest_start_pos, length($full5),
+                                                                         10, 3, 1);
 
-    # Take the first homologous and look for start in a -10 upstream and +3 downstream aa window
-    my $closest_start_pos           = $start_pos_cmp_start_orf->{"a"};
-    my $limit_5                     = $closest_start_pos - 10;
-    my $limit_3                     = $closest_start_pos + 3;
-       $limit_5                     = 0 if $limit_5 < 0;
-       $limit_3                     = length($full5) if $limit_3 > length($full5);
-       $limit_3                     = 0 if $limit_3 < 0;
-
-    # Filter all possible M start in the -10 upstream and +3 downstream aa window
-    my $filtered_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 1);
-    my $new_start                   = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
-
-    # Check if start is defined or if it is 0
+    # Check if ATG start is defined or if it is 0
+    my $new_start = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
-
-        $new_start = $new_start - $pos_hyp_start_in_full5;
+        $new_start = &NewStartPos($new_start,$pos_hyp_start_in_orf);
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
     }
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
+    my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$closest_start_pos, length($full5),
+                                                                         10, 3, 0);
 
-    # Filter all possible start in the -10 upstream and +3 downstream aa window
-    my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 0);
-    $new_start                   = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
-
+    # Check if start is defined or if it is 0
+    $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
-
-        $new_start = $new_start - $pos_hyp_start_in_full5;
+        $new_start = &NewStartPos($new_start,$pos_hyp_start_in_orf);
         &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
         return;
     }
@@ -1882,7 +1865,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     ## comment about valid start codon found                       ##
 
     # If no start found set start at position in closest homologous
-    $new_start = $start_pos_cmp_start_orf->{"a"} - $pos_hyp_start_in_full5;
+    $new_start = &NewStartPos($start_pos_cmp_to_orf->{"a"},$pos_hyp_start_in_orf);
     $new_start = $new_start < 0 ? 0 : $new_start;
     # (i)   no proper translation codon identified,
     &ChangeHypProtVal($hypprot, $new_start, $isMinus, $seq);
@@ -1894,7 +1877,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $filtered_upstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,$closest_start_pos, 1);
     my $first_upstream_atg = (sort { $a <=> $b } keys %$filtered_upstream_ATG_possible_start)[-1];
     if (defined $first_upstream_atg) {
-        my $first_upstream_atg_pos = $first_upstream_atg - $pos_hyp_start_in_full5;
+        my $first_upstream_atg_pos = $first_upstream_atg - $pos_hyp_start_in_orf;
         $first_upstream_atg_pos    = &ChangeStart($hypprot->get_start, $first_upstream_atg_pos, $isMinus,$seq);
         $comment .= ", first upstream ATG at position $first_upstream_atg_pos";
     }
@@ -1903,7 +1886,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $filtered_downstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$closest_start_pos,length($full5), 1);
     my $first_downstream_atg                   = (sort { $a <=> $b } keys %$filtered_downstream_ATG_possible_start)[0];
     if (defined $first_downstream_atg) {
-        my $first_downstream_atg_pos = $first_downstream_atg - $pos_hyp_start_in_full5;
+        my $first_downstream_atg_pos = $first_downstream_atg - $pos_hyp_start_in_orf;
         $first_downstream_atg_pos    = &ChangeStart($hypprot->get_start, $first_downstream_atg_pos, $isMinus,$seq);
         $comment .= ", first downstream ATG at position $first_downstream_atg_pos";
     }
@@ -1918,7 +1901,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
         defined $first_upstream_atg   &&
         $first_upstream_start != $first_upstream_atg
        ) {
-        my $first_upstream_start_pos = $first_upstream_start - $pos_hyp_start_in_full5;
+        my $first_upstream_start_pos = $first_upstream_start - $pos_hyp_start_in_orf;
         $first_upstream_start_pos    = &ChangeStart($hypprot->get_start, $first_upstream_start_pos, $isMinus,$seq);
 
         my $tri_nt = &Get_nt_seq($seq,$first_upstream_start_pos,$isMinus ? $first_upstream_start_pos-3 : $first_upstream_start_pos+3,$isMinus);
@@ -1933,7 +1916,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
         defined $first_downstream_atg   &&
         $first_downstream_start != $first_downstream_atg
         ) {
-        my $first_downstream_start_pos = $first_downstream_start - $pos_hyp_start_in_full5;
+        my $first_downstream_start_pos = $first_downstream_start - $pos_hyp_start_in_orf;
         $first_downstream_start_pos    = &ChangeStart($hypprot->get_start, $first_downstream_start_pos, $isMinus,$seq);
         my $tri_nt = &Get_nt_seq($seq,$first_downstream_start_pos,$isMinus ? $first_downstream_start_pos-2 : $first_downstream_start_pos+2,$isMinus);
         $comment .= ", first downstream alternative start codon  (gc=$tri_nt) at position $first_downstream_start_pos";
@@ -1943,6 +1926,11 @@ sub AdjustStartByHMMForBLASTandExonerate {
     return;
 }
 
+sub NewStartPos {
+    my ($start_pos_cmp_to_orf , $pos_hyp_start_in_orf) = @_;
+
+    return $start_pos_cmp_to_orf - $pos_hyp_start_in_orf;
+}
 sub AddCommentForStart {
     my ($hypprot, $new_start, $closest_start, $extra_comment) = @_;
 
@@ -1950,7 +1938,7 @@ sub AddCommentForStart {
     my $diff       = int($closest_start) - int($new_start);
     my $up_or_down = $diff < 0 ? "downstream" : "upstream";
         $diff      = abs($diff);
-    my $warning = $diff != 0 ? " Start was found $diff positions $up_or_down, compared to close reference protein" : "";
+    my $warning    = $diff != 0 ? " Start was found $diff positions $up_or_down, compared to close reference protein" : "";
 
     if ((ref($hypprot) && $hypprot->isa('PirObject::AnnotPair'))) {
         $warning     .= "$extra_comment" if $extra_comment ne "";
@@ -1993,34 +1981,24 @@ sub AdjustStartAndEndByHMMForHMM {
     my $full5              = &GetFull5($seq,$isMinus,$this_prot,$StartOrf);
     my $all_possible_start = &DefineAllPossibleStart($full5);
 
-    ## Look for M start in a -10 upstream and +3 downstream aa window ##
-    # Take the first homologous and look for start in a -10 upstream and +3 downstream aa window
-    my $limit_5                     = $simi_start_in_aa - 10;
-    my $limit_3                     = $simi_start_in_aa + 3;
-       $limit_5                     = 0 if $limit_5 < 0;
-       $limit_3                     = length($full5) if $limit_3 > length($full5);
-       $limit_3                     = 0 if $limit_3 < 0;
+    ## Look for ATG start in a -10 upstream and +3 downstream aa window ##
+    my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$simi_start_in_aa,length($full5),
+                                                                         10, 3, 1);
 
-    # Filter all possible M start in the -10 upstream and +3 downstream aa window
-    my $filtered_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 1);
-    my $new_start                   = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
-
-    # Check if start is defined or if it is 0
+    my $new_start = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($annot, $new_start, $simi_start_in_aa, $hmm_matches_comment);
-
         &ChangeAnnotVal($annot, $new_start, $StartOrf, $end, $isMinus, $seq);
         return $annot;
     }
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
-    # Filter all possible start in the -10 upstream and +3 downstream aa window
-    my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3, 0);
-    $new_start                   = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
+    my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$simi_start_in_aa,length($full5),
+                                                                         10, 3, 0);
 
+    $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($annot, $new_start, $simi_start_in_aa, $hmm_matches_comment);
-
         &ChangeAnnotVal($annot, $new_start, $StartOrf, $end, $isMinus, $seq);
         return $annot;
     }
@@ -2563,6 +2541,22 @@ sub FilterAllPossibleStart {
         next if $ATG_only && lc($val->{"aa"}) ne "m";
         $filtered_all_possible_start->{$pos}->{"aa"} = $val->{"aa"};
     }
+
+    return $filtered_all_possible_start;
+}
+
+# Define 5 and 3 limit in order to called
+# FilterAllPossibleStart with this one
+sub FilterAllPossibleStartWithinRange {
+    my ($all_possible_start,$homologous_start,$length_full5,$upstream,$downstream,$only_ATG) = @_;
+
+    my $limit_5 = $homologous_start - $upstream;
+       $limit_5 = 0 if $limit_5 < 0;
+    my $limit_3 = $homologous_start + $downstream;
+       $limit_3 = 0 if $limit_3 < 0;
+       $limit_3 = $length_full5 if $limit_3 > $length_full5;
+
+    my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3,$only_ATG);
 
     return $filtered_all_possible_start;
 }
