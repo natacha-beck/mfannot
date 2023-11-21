@@ -1795,7 +1795,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     for (my $i=0; $i < @$homologous; $i++) {
         my $id = $homologous->[$i];
         my $start_in_closest_homologous  = $start_pos_cmp_start_orf->{$id};
-        next if !$start_in_closest_homologous;
+        next if !defined $start_in_closest_homologous;
 
         my $aa = undef;
         if ($start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
@@ -3363,7 +3363,7 @@ sub Add_comment_for_transpliced {
                                                  endpos    => $end,
                                                  direction => $arrow,
                                                  startline => ";; G-$name $arrow /note= likely split by linearization of a circular-mapping genome",
-                                                 endline   => ";; G-$name  $arrow end",
+                                                 endline   => ";; G-$name $arrow end",
                                                  );
     &AddAnnotToPirMaster($contigname,$full_gene);
 
@@ -6379,8 +6379,7 @@ sub AnnotateEmptyOrfs {
                 my $annot = $AP_who_overlap->[2];
                 my $name  = $annot->get_genename();
                 my $AP_ov_isMinus = $annot->get_direction() eq "==>" ? 0 : 1;
-                next if !($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i) &&
-                        $AP_ov_isMinus == $isMinus;
+                next if !($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i) && $AP_ov_isMinus == $isMinus;
                 push(@$list_of_pos, $annot->get_startpos(),  $annot->get_endpos())
             }
         }
@@ -6456,8 +6455,6 @@ sub AnnotateEmptyOrfs {
         }
 
         my ($ToAnnot,$isOV,$start_index) = (0,0,-1);
-
-        # my $remaining_possible_starts = @$possible_starts;
 
         foreach my $possible_start (@$possible_starts) {
             $start_index++;
@@ -8112,6 +8109,8 @@ sub FindStartAndStopForSimpleGeneIdByHMM {
 
 sub FindStartAndStopForComplexGeneIdByHMM {
     my ($annot,$tab_exons,$OrfFile,$seq) = @_;
+
+    print "IN FindStartAndStopForComplexGeneIdByHMM\n";
 
     # Change endpos
     my $EndOrf    = $1 if $tab_exons->[-1]->get_IdORF() =~ m/\[\s*\d+\s*-\s*(\d+)\s*\]/;
