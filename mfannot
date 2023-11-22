@@ -1785,7 +1785,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     }
 
     my $all_possible_start  = &DefineAllPossibleStart($full5);
-
+    my $start_founded       = 0;
     ## Start found at same place as the closest homologous ##
 
     # Iterate over the 3 closest homologous proteins and
@@ -1804,20 +1804,14 @@ sub AdjustStartByHMMForBLASTandExonerate {
 
         # Look for M only at the same place as the closest homologous
         if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous} && $aa && $aa eq "m") {
-            &ChangeHypProtVal($hypprot, $start_in_closest_homologous, $start_orf, $isMinus, $seq);
+            &ChangeHypProtValOrAnnotVal($hypprot, $start_in_closest_homologous, $start_orf, undef, $isMinus, $seq);
             return;
         }
 
         ## Look for M start in a short aa window ##
-        my $filtered_short_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$start_in_closest_homologous, length($full5),
-                                                                                   $SHORT_RANGE_START_UPSTREAM,  $SHORT_RANGE_START_DOWNSTREAM, 1);
-
-        my $new_start = (sort { $a <=> $b } keys %$filtered_short_ATG_possible_start)[0];
-        if (defined $new_start) {
-            &AddCommentForStart($hypprot, $new_start, $start_in_closest_homologous);
-            &ChangeHypProtVal($hypprot, $new_start, $start_orf, $isMinus, $seq);
-            return;
-        }
+        $start_founded = &ResearchStartCommentAndModify($hypprot, $all_possible_start,$start_in_closest_homologous, $start_orf, undef, length($full5),
+                                      $SHORT_RANGE_START_UPSTREAM,  $SHORT_RANGE_START_DOWNSTREAM, 1, $isMinus, $seq, 0);
+        return undef if $start_founded;
     }
 
     # Look for all start at the same place
@@ -1826,12 +1820,15 @@ sub AdjustStartByHMMForBLASTandExonerate {
         my $start_in_closest_homologous  = $start_pos_cmp_to_orf->{$id};
             # Look for all start only at the same place as the closest homologous
         if ( $start_in_closest_homologous && $all_possible_start->{$start_in_closest_homologous}) {
-            &ChangeHypProtVal($hypprot, $start_in_closest_homologous, $start_orf, $isMinus, $seq);
+            &ChangeHypProtValOrAnnotVal($hypprot, $start_in_closest_homologous, $start_orf, undef, $isMinus, $seq);
             return;
         }
     }
 
-    ## Look for M start in a -10 upstream and +3 downstream aa window ##
+    ## Look for ATG start in a -10 upstream and +3 downstream aa window ##
+    # $start_founded = &ResearchStartCommentAndModify($hypprot, $all_possible_start, $start_pos_cmp_to_orf->{"a"}, $start_orf, undef, length($full5),
+    #                                 10, 3, 0, $isMinus, $seq, -1);
+    # return undef if $isFound;
     my $closest_start_pos           = $start_pos_cmp_to_orf->{"a"};
     my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$closest_start_pos,length($full5),
                                                                          10, 3, 1);
@@ -1840,7 +1837,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $new_start = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
-        &ChangeHypProtVal($hypprot, $new_start , $start_orf, $isMinus, $seq);
+        &ChangeHypProtValOrAnnotVal($hypprot, $new_start , $start_orf, undef, $isMinus, $seq);
         return;
     }
 
@@ -1848,11 +1845,10 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$closest_start_pos,length($full5),
                                                                          10, 3, 0);
 
-    # Check if start is defined or if it is 0
     $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
-        &ChangeHypProtVal($hypprot, $new_start ,$start_orf, $isMinus, $seq);
+        &ChangeHypProtValOrAnnotVal($hypprot, $new_start ,$start_orf, undef, $isMinus, $seq);
         return;
     }
 
@@ -1862,7 +1858,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     # If no start found set start at position in closest homologous
     # (i)   no proper translation codon identified,
     $new_start = $start_pos_cmp_to_orf->{"a"} < 0 ? 0 : $start_pos_cmp_to_orf->{"a"};
-    &ChangeHypProtVal($hypprot, $new_start, $start_orf, $isMinus, $seq);
+    &ChangeHypProtValOrAnnotVal($hypprot, $new_start, $start_orf, undef, $isMinus, $seq);
 
     # (ii)  first upstream ATG at position x, first downstream ATG in position Y...
     # Annotate the first upstream ATG
@@ -1928,7 +1924,7 @@ sub AdjustStartAndEndByHMMForHMM {
     my $new_start = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($annot, $new_start, $simi_start_in_aa, $hmm_matches_comment);
-        &ChangeAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
+        &ChangeHypProtValOrAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
         return $annot;
     }
 
@@ -1939,7 +1935,7 @@ sub AdjustStartAndEndByHMMForHMM {
     $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
     if (defined $new_start) {
         &AddCommentForStart($annot, $new_start, $simi_start_in_aa, $hmm_matches_comment);
-        &ChangeAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
+        &ChangeHypProtValOrAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
         return $annot;
     }
 
@@ -1953,7 +1949,7 @@ sub AdjustStartAndEndByHMMForHMM {
     $new_start = $simi_start_in_aa;
     $new_start = $new_start < 0 ? 0 : $new_start;
 
-    &ChangeAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
+    &ChangeHypProtValOrAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
 
     $simi_start_in_aa = 0              if $simi_start_in_aa < 0;
     $simi_start_in_aa = length($full5) if $simi_start_in_aa > length($full5);
@@ -2475,6 +2471,24 @@ sub DefineAllPossibleStart {
     return $all_possible_start;
 }
 
+sub ResearchStartCommentAndModify {
+    my ($pir_object, $all_possible_start,$start_in_closest_homologous, $start_orf, $end, $length_full5,
+                                      $upstream,  $downstream, $only_ATG, $isMinus, $seq, $index) = @_ ;
+
+    my $filtered_start = &FilterAllPossibleStartWithinRange($all_possible_start,$start_in_closest_homologous, $length_full5,
+                                                                                $upstream, $downstream, $only_ATG);
+
+    my $new_start = (sort { $a <=> $b } keys %$filtered_start)[$index];
+    if (defined $new_start) {
+        &AddCommentForStart($pir_object, $new_start, $start_in_closest_homologous);
+        &ChangeHypProtValOrAnnotVal($pir_object, $new_start, $start_orf, undef, $isMinus, $seq);
+        return 1;
+    }
+
+    return 0;
+}
+
+
 # Filtered all possible start between 5 and 3 limit
 sub FilterAllPossibleStart {
     my ($all_possible_start,$five_start_limit,$three_start_limit, $ATG_only) = @_;
@@ -2504,6 +2518,22 @@ sub FilterAllPossibleStartWithinRange {
     my $filtered_all_possible_start = &FilterAllPossibleStart($all_possible_start,$limit_5,$limit_3,$only_ATG);
 
     return $filtered_all_possible_start;
+}
+
+# Change value to set new start and new end
+# works for hypprot and annotpair
+sub ChangeHypProtValOrAnnotVal {
+    my ($pir_object, $new_start, $start_orf, $end, $isMinus, $seq) = @_;
+
+    $new_start = $new_start < 0 ? 0 : $new_start;
+    # If is a hypprot
+    if ((ref($pir_object) && $pir_object->isa('PirObject::HypProt'))) {
+        &ChangeHypProtVal($pir_object,$new_start,$start_orf,$isMinus,$seq);
+    }
+    # If is an AnnotPair
+    if ((ref($pir_object) && $pir_object->isa('PirObject::AnnotPair'))) {
+        &ChangeAnnotVal($pir_object,$new_start,$start_orf,$end,$isMinus,$seq);
+    }
 }
 
 # Upddate values in the hypprot object
