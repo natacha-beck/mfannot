@@ -1810,7 +1810,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
 
         ## Look for M start in a short aa window ##
         $start_founded = &ResearchStartCommentAndModify($hypprot, $all_possible_start,$start_in_closest_homologous, $start_orf, undef, length($full5),
-                                      $SHORT_RANGE_START_UPSTREAM,  $SHORT_RANGE_START_DOWNSTREAM, 1, $isMinus, $seq, 0);
+                                      $SHORT_RANGE_START_UPSTREAM,  $SHORT_RANGE_START_DOWNSTREAM, 1, $isMinus, $seq, 0, undef);
         return undef if $start_founded;
     }
 
@@ -1828,22 +1828,21 @@ sub AdjustStartByHMMForBLASTandExonerate {
     my $closest_start_pos = $start_pos_cmp_to_orf->{"a"};
     ## Look for ATG start in a -10 upstream and +3 downstream aa window ##
     $start_founded = &ResearchStartCommentAndModify($hypprot, $all_possible_start, $closest_start_pos, $start_orf, undef, length($full5),
-                                    10, 3, 1, $isMinus, $seq, -1);
+                                    10, 3, 1, $isMinus, $seq, -1, undef);
     return undef if $start_founded;
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
     $start_founded = &ResearchStartCommentAndModify($hypprot, $all_possible_start, $closest_start_pos, $start_orf, undef, length($full5),
-                                    10, 3, 0, $isMinus, $seq, -1);
+                                    10, 3, 0, $isMinus, $seq, -1, undef);
     return undef if $start_founded;
 
-    ## No start found, set start at position in closest homologous ##
+    ## No close start found, set start at position in closest homologous ##
     ## comment about valid start codon found                       ##
 
     # If no start found set start at position in closest homologous
     # (i)   no proper translation codon identified,
     my $new_start = $closest_start_pos < 0 ? 0 : $closest_start_pos;
     &ChangeHypProtValOrAnnotVal($hypprot, $new_start, $start_orf, undef, $isMinus, $seq);
-
     # (ii)  first upstream ATG at position x, first downstream ATG in position Y...
     # Annotate the first upstream ATG
     my $comment = &CommentForAltStart($all_possible_start,$closest_start_pos,$start_orf,length($full5),$isMinus,$seq);
@@ -1896,32 +1895,21 @@ sub AdjustStartAndEndByHMMForHMM {
     $start  = $start_orf if ($start < $start_orf && !$isMinus);
     $start  = $start_orf if ($start > $start_orf &&  $isMinus);
 
-    my $simi_start_in_aa   = $annot->get_SimiStartInAA();
+    my $closest_start_pos  = $annot->get_SimiStartInAA();
     my $this_prot          = &GetProteinForGeneWithoutIntrons($seq, $start_orf, $end, $isMinus);
     my $full5              = &GetFull5($seq,$isMinus,$this_prot,$start_orf);
     my $all_possible_start = &DefineAllPossibleStart($full5);
+    my $start_founded      = 0;
 
     ## Look for ATG start in a -10 upstream and +3 downstream aa window ##
-    my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$simi_start_in_aa,length($full5),
-                                                                         10, 3, 1);
-
-    my $new_start = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
-    if (defined $new_start) {
-        &AddCommentForStart($annot, $new_start, $simi_start_in_aa, $hmm_matches_comment);
-        &ChangeHypProtValOrAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
-        return $annot;
-    }
+    $start_founded = &ResearchStartCommentAndModify($annot, $all_possible_start, $closest_start_pos, $start_orf, $end, length($full5),
+                                    10, 3, 1, $isMinus, $seq, -1, $hmm_matches_comment);
+    return $annot if $start_founded;
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
-    my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$simi_start_in_aa,length($full5),
-                                                                         10, 3, 0);
-
-    $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
-    if (defined $new_start) {
-        &AddCommentForStart($annot, $new_start, $simi_start_in_aa, $hmm_matches_comment);
-        &ChangeHypProtValOrAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
-        return $annot;
-    }
+    $start_founded = &ResearchStartCommentAndModify($annot, $all_possible_start, $closest_start_pos, $start_orf, $end, length($full5),
+                                    10, 3, 0, $isMinus, $seq, -1, $hmm_matches_comment);
+    return $annot if $start_founded;
 
     #--------------------------------------------------------------
 
@@ -1930,15 +1918,15 @@ sub AdjustStartAndEndByHMMForHMM {
 
     # If no start found set start at position in closest homologous
     # (i)   no proper translation codon identified,
-    $new_start = $simi_start_in_aa;
-    $new_start = $new_start < 0 ? 0 : $new_start;
+    my $new_start = $closest_start_pos;
+    $new_start    = $new_start < 0 ? 0 : $new_start;
 
     &ChangeHypProtValOrAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
 
-    $simi_start_in_aa = 0              if $simi_start_in_aa < 0;
-    $simi_start_in_aa = length($full5) if $simi_start_in_aa > length($full5);
+    $closest_start_pos = 0              if $closest_start_pos < 0;
+    $closest_start_pos = length($full5) if $closest_start_pos > length($full5);
     # (ii)  first upstream ATG at position x, first downstream ATG in position Y...
-    my $comment       = &CommentForAltStart($all_possible_start,$simi_start_in_aa,$start_orf,length($full5),$isMinus,$seq);
+    my $comment       = &CommentForAltStart($all_possible_start,$closest_start_pos,$start_orf,length($full5),$isMinus,$seq);
 
     # Add comment on startline
     my $startline = $annot->get_startline();
@@ -2457,19 +2445,19 @@ sub DefineAllPossibleStart {
 
 sub ResearchStartCommentAndModify {
     my ($pir_object, $all_possible_start,$start_in_closest_homologous, $start_orf, $end, $length_full5,
-                                      $upstream,  $downstream, $only_ATG, $isMinus, $seq, $index) = @_ ;
+                                      $upstream,  $downstream, $only_ATG, $isMinus, $seq, $index, $comment) = @_ ;
 
     my $filtered_start = &FilterAllPossibleStartWithinRange($all_possible_start,$start_in_closest_homologous, $length_full5,
                                                                                 $upstream, $downstream, $only_ATG);
 
     my $new_start = (sort { $a <=> $b } keys %$filtered_start)[$index];
     if (defined $new_start) {
-        &AddCommentForStart($pir_object, $new_start, $start_in_closest_homologous);
-        &ChangeHypProtValOrAnnotVal($pir_object, $new_start, $start_orf, undef, $isMinus, $seq);
+        &AddCommentForStart($pir_object, $new_start, $start_in_closest_homologous,$comment);
+        &ChangeHypProtValOrAnnotVal($pir_object, $new_start, $start_orf, $end, $isMinus, $seq);
         return 1;
     }
 
-    return 0;
+    return 0; # No start found
 }
 
 
