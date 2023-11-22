@@ -1825,41 +1825,23 @@ sub AdjustStartByHMMForBLASTandExonerate {
         }
     }
 
+    my $closest_start_pos = $start_pos_cmp_to_orf->{"a"};
     ## Look for ATG start in a -10 upstream and +3 downstream aa window ##
-    $start_founded = &ResearchStartCommentAndModify($hypprot, $all_possible_start, $start_pos_cmp_to_orf->{"a"}, $start_orf, undef, length($full5),
+    $start_founded = &ResearchStartCommentAndModify($hypprot, $all_possible_start, $closest_start_pos, $start_orf, undef, length($full5),
                                     10, 3, 1, $isMinus, $seq, -1);
     return undef if $start_founded;
-    # my $closest_start_pos           = $start_pos_cmp_to_orf->{"a"};
-    # my $filtered_ATG_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$closest_start_pos,length($full5),
-    #                                                                      10, 3, 1);
-
-    # # Check if ATG start is defined or if it is 0
-    # my $new_start = (sort { $a <=> $b } keys %$filtered_ATG_possible_start)[-1];
-    # if (defined $new_start) {
-    #     &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
-    #     &ChangeHypProtValOrAnnotVal($hypprot, $new_start , $start_orf, undef, $isMinus, $seq);
-    #     return;
-    # }
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
-    my $closest_start_pos           = $start_pos_cmp_to_orf->{"a"};
-
-    my $filtered_all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,$closest_start_pos,length($full5),
-                                                                         10, 3, 0);
-
-    my $new_start = (sort { $a <=> $b } keys %$filtered_all_possible_start)[-1];
-    if (defined $new_start) {
-        &AddCommentForStart($hypprot, $new_start, $closest_start_pos);
-        &ChangeHypProtValOrAnnotVal($hypprot, $new_start ,$start_orf, undef, $isMinus, $seq);
-        return;
-    }
+    $start_founded = &ResearchStartCommentAndModify($hypprot, $all_possible_start, $closest_start_pos, $start_orf, undef, length($full5),
+                                    10, 3, 0, $isMinus, $seq, -1);
+    return undef if $start_founded;
 
     ## No start found, set start at position in closest homologous ##
     ## comment about valid start codon found                       ##
 
     # If no start found set start at position in closest homologous
     # (i)   no proper translation codon identified,
-    $new_start = $start_pos_cmp_to_orf->{"a"} < 0 ? 0 : $start_pos_cmp_to_orf->{"a"};
+    my $new_start = $closest_start_pos < 0 ? 0 : $closest_start_pos;
     &ChangeHypProtValOrAnnotVal($hypprot, $new_start, $start_orf, undef, $isMinus, $seq);
 
     # (ii)  first upstream ATG at position x, first downstream ATG in position Y...
