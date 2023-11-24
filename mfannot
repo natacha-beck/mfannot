@@ -620,16 +620,15 @@ sub CreatePepfileWithLibrary {
         my $name = $file =~ s/\.faa$//r;
 
         my $PEP_F = new IO::File "<$loc_file" or die "Cannot open the pepfile '$loc_file': $!\n";
-        my $to_annot = 0;
         while (my $line = <$PEP_F>) {
             next if $line =~ /^;|^\s*$/;
             if ($line =~ /^>/) {
                 die "The library file \"$loc_file\" has incorrect FASTA syntax.\nThe line faulty line is: \n$line"
-                if (!($line =~ m/(pt|pt_cyano|mt|mt_alpha)\s+[\S]+\s*;/i));
+                if (!($line =~ m/\s+(pt|pt_cyano|mt|mt_alpha)\s+[\S]+\s*;/i));
                 my $origin = lc($1);
 
-                $chloro_gene->{$name}++ if $origin =~ m/pt/ || !$to_annot;
-                $mito_gene->{$name}++   if $origin =~ m/mt/ || !$to_annot;
+                $chloro_gene->{$name}++ if $origin =~ m/pt/;
+                $mito_gene->{$name}++   if $origin =~ m/mt/;
 
                 $desc = $line;
                 $desc =~ s/^>?\s*//;
