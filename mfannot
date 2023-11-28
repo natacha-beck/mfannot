@@ -1864,15 +1864,16 @@ sub AddCommentForStart {
     my $warning    = $diff != 0 ? " Start was found $diff positions $up_or_down, compared to close reference protein" : "";
 
     if ((ref($hypprot) && $hypprot->isa('PirObject::AnnotPair'))) {
-        $warning     .= "$extra_comment" if $extra_comment ne "";
+        return if $warning eq "";
+        # $warning     .= "$extra_comment" if $extra_comment ne "";
         my $startline = $hypprot->get_startline();
         $startline    = $startline =~ /\.+;;/ ?
-          $startline . " $warning":
-          $startline . " ;; $warning";
+          $startline . " $extra_comment":
+          $startline . " ;; $extra_comment";
         $hypprot->set_startline($startline);
     }
     if ((ref($hypprot) && $hypprot->isa('PirObject::HypProt'))) {
-        $hypprot->set_startwarning($warning);
+        $hypprot->set_startwarning($extra_comment);
     }
 }
 
@@ -1882,7 +1883,7 @@ sub AdjustStartAndEndByHMMForHMM {
     my $direction           = $annot->get_direction();
     my $isMinus             = $direction eq "==>" ? 0 : 1;
     my $start               = $annot->get_SimiStart();
-    my ($start_orf,$EndOrf)  = ($1,$2) if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+    my ($StartOrf,$EndOrf)  = ($1,$2) if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
     my $end                 = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
 
 
@@ -1896,22 +1897,22 @@ sub AdjustStartAndEndByHMMForHMM {
     }
 
     # If start is negative, we set it to the start of the ORF
-    $start  = $start_orf if ($start < $start_orf && !$isMinus);
-    $start  = $start_orf if ($start > $start_orf &&  $isMinus);
+    $start  = $StartOrf if ($start < $StartOrf && !$isMinus);
+    $start  = $StartOrf if ($start > $StartOrf &&  $isMinus);
 
     my $closest_start_pos  = $annot->get_SimiStartInAA();
-    my $this_prot          = &GetProteinForGeneWithoutIntrons($seq, $start_orf, $end, $isMinus);
-    my $full5              = &GetFull5($seq,$isMinus,$this_prot,$start_orf);
+    my $this_prot          = &GetProteinForGeneWithoutIntrons($seq, $StartOrf, $end, $isMinus);
+    my $full5              = &GetFull5($seq,$isMinus,$this_prot,$StartOrf);
     my $all_possible_start = &DefineAllPossibleStart($full5);
     my $start_founded      = 0;
 
     ## Look for ATG start in a -10 upstream and +3 downstream aa window ##
-    $start_founded = &ResearchStartCommentAndModify($annot, $all_possible_start, $closest_start_pos, $start_orf, $end, length($full5),
+    $start_founded = &ResearchStartCommentAndModify($annot, $all_possible_start, $closest_start_pos, $StartOrf, $end, length($full5),
                                     10, 3, 1, $isMinus, $seq, -1, $hmm_matches_comment);
     return $annot if $start_founded;
 
     ## Look for start in a -10 upstream and +3 downstream aa window ##
-    $start_founded = &ResearchStartCommentAndModify($annot, $all_possible_start, $closest_start_pos, $start_orf, $end, length($full5),
+    $start_founded = &ResearchStartCommentAndModify($annot, $all_possible_start, $closest_start_pos, $StartOrf, $end, length($full5),
                                     10, 3, 0, $isMinus, $seq, -1, $hmm_matches_comment);
     return $annot if $start_founded;
 
@@ -1925,12 +1926,12 @@ sub AdjustStartAndEndByHMMForHMM {
     my $new_start = $closest_start_pos;
     $new_start    = $new_start < 0 ? 0 : $new_start;
 
-    &ChangeHypProtValOrAnnotVal($annot, $new_start, $start_orf, $end, $isMinus, $seq);
+    &ChangeHypProtValOrAnnotVal($annot, $new_start, $StartOrf, $end, $isMinus, $seq);
 
     $closest_start_pos = 0              if $closest_start_pos < 0;
     $closest_start_pos = length($full5) if $closest_start_pos > length($full5);
     # (ii)  first upstream ATG at position x, first downstream ATG in position Y...
-    my $comment       = &CommentForAltStart($all_possible_start,$closest_start_pos,$start_orf,length($full5),$isMinus,$seq);
+    my $comment       = &CommentForAltStart($all_possible_start,$closest_start_pos,$StartOrf,length($full5),$isMinus,$seq);
 
     # Add comment on startline
     my $startline = $annot->get_startline();
@@ -1958,7 +1959,7 @@ sub ChangeAnnotVal {
     $annot->set_endline($endline);
 
     # Set start
-    $new_start = $start_orf + ($new_start*3);
+    $new_start = !$isMinus ? $start_orf + (($new_start)*3) : $start_orf - (($new_start)*3);
     $annot->set_startpos($new_start);
     # Set end
     $annot->set_endpos($end);
@@ -7353,7 +7354,7 @@ sub RunHMMSearchForLowConservedGenes {
       my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
 
       my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
-      my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 -o $FileRes $hmmFile $OrfFile";
+      my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 --domE 0.0001 -o $FileRes $hmmFile $OrfFile";
       print "$cmd\n" if $DEBUG;
 
       my $resultat = system("$cmd >/dev/null 2>/dev/null");
@@ -7478,6 +7479,7 @@ sub CreateAllHMMAnnot {
              $AllHMMAnnot->{$Res}->{$resume->get_SeqIdAndDesc()} = [$annots,$resume];
          }
     }
+
     return $AllHMMAnnot;
 }
 
