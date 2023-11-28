@@ -3725,7 +3725,7 @@ sub RunHMMSearchForMiniEx {
 
     my $FileRes = "${ShortName}_z$z.res";
 
-    my $cmd = "nice -19 $HMMSEARCHPATH -o $FileRes $prothmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH -E 0.0001 --domE 0.0001 -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -4685,7 +4685,7 @@ sub RunHMMForeachSplice {
 sub RunHMMSearchForSplice {
     my ($FileRes,$hmm,$FastaName) = @_;
 
-    my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -o $FileRes $hmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 --domE 0.0001 -o $FileRes $hmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
