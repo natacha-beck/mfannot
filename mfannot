@@ -1873,7 +1873,7 @@ sub AddCommentForStart {
         $hypprot->set_startline($startline);
     }
     if ((ref($hypprot) && $hypprot->isa('PirObject::HypProt'))) {
-        $warning     .= "$extra_comment" if $extra_comment ne "";
+        $warning     .= "$extra_comment" if $extra_comment && $extra_comment ne "";
         $hypprot->set_startwarning($warning);
     }
 }
