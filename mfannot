@@ -379,6 +379,21 @@ die "Unable to read '$LIB_FILE'\n"
 my $MITO_GENE_TYP   = ["cox1","cox2","cox3","cob","atp6"];
 my $CHLORO_GENE_TYP = ["apcA","apcB","apcD","apcE","apcF","cpcG","petA","petB"];
 
+# Debug print all env var
+if ($DEBUG) {
+    # Print all environment variable
+    print "----------------------------------\n",
+          "         Environment variable     \n",
+          "----------------------------------\n";
+    my $env_var = ["RNAFINDER_CFG_PATH","MF2SQN_LIB","MFANNOT_LIB_PATH",
+                   "MFANNOT_EXT_CFG_PATH","MFANNOT_MOD_PATH","BLASTMAT","EGC",
+                   "PIR_DATAMODEL_PATH"];
+    foreach my $var (@$env_var) {
+        print "$var : $ENV{$var}\n";
+    }
+}
+
+
 # ANNOTATION #
 # Print option of the annotation
 print "----------------------------------\n",
@@ -8972,6 +8987,8 @@ sub LogInfo {
     push(@$header, ";; Masterfile modified automatically by $BASENAME");
     push(@$header, ";; version $VERSION") if $VERSION;
     push(@$header, ";; version $MFANNOT_COMMIT_DATE") if $MFANNOT_COMMIT_DATE;
+    push(@$header, ";; $COMMIT") if $COMMIT;
+    push(@$header, ";; $PIR_COMMIT (PirModels)") if $PIR_COMMIT;
     push(@$header, ";; on " . scalar(localtime(time))  . " by user $USER on host " . hostname());
     push(@$header, @report, ";;",);
     push(@$header, $add_text_in_header) if $add_text_in_header ne "";
