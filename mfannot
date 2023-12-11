@@ -3705,7 +3705,7 @@ sub RunHMMSearchForMiniEx {
 
     my $FileRes = "${ShortName}_z$z.res";
 
-    my $cmd = "nice -19 $HMMSEARCHPATH -E 0.0001 --domE 0.0001 -o $FileRes $prothmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -4665,7 +4665,7 @@ sub RunHMMForeachSplice {
 sub RunHMMSearchForSplice {
     my ($FileRes,$hmm,$FastaName) = @_;
 
-    my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 --domE 0.0001 -o $FileRes $hmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -o $FileRes $hmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -6287,6 +6287,9 @@ sub AddCommentForFusion {
 #---------------------------------#
 
 sub AnnotateEmptyOrfs {
+
+    my $MINLENEMPTYORF_IN_AA = $MINLENEMPTYORF / 3;
+
     # This function takes the empty array of ORF and annotate it as ORFs
     # It means ORF having non corresponding gene in a pepfile
     foreach my $emptyorf (@$EMPTYORFS) {
@@ -6295,7 +6298,6 @@ sub AnnotateEmptyOrfs {
         my $contigname = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
         my $contig     = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
         my $contiglen  = $contig->get_sequencelength();
-
         next if $emptyorf->get_strand() == 2; # Skip ORF on both strand
 
         # Add endo note
@@ -6307,8 +6309,8 @@ sub AnnotateEmptyOrfs {
         my ($isMinus,$step)      = ($strand_orf == 1 ? (0,3) : (1,-3));
         my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
 
+        # Create a list of annotations who overlap the empty ORF (Keep only !RNA)
         my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
-        # Keep only !RNA
         my $list_of_pos = [];
         foreach my $list_who_overlap (@$annot_who_overlap) {
             foreach my $AP_who_overlap (@$list_who_overlap ) {
@@ -6320,149 +6322,104 @@ sub AnnotateEmptyOrfs {
             }
         }
 
-        @$list_of_pos = sort { $a <=> $b } @$list_of_pos;
-        if (scalar(@$list_of_pos) != 0 ) {
-            my $retain_val = $isMinus ? @$list_of_pos[0] : @$list_of_pos[-1] ;
-            $start_orf    += $step while (($isMinus ? ($start_orf > $retain_val) : ($start_orf < $retain_val)));
+        # Extract the sequence of the ORF on full5
+        my $seq          = $contig->get_sequence();    # Get the sequence
+           $seq          =~ s/!//g;                    # Remove ! from the sequence
+        my $full5        = &GetProteinForGeneWithoutIntrons($seq, $start_orf, $end_orf, $isMinus);
+        my $length_full5 = length($full5);
+
+        # Based on the minimum size of accepted ORF, define all possible start
+        my $last_possible_start_pos = ($length_full5 - $MINLENEMPTYORF_IN_AA) - 1; # -1 for stop codon
+        my $all_possible_start      = {};
+        if ($last_possible_start_pos >= 0) {
+            # Define all possible start
+            $all_possible_start = &DefineAllPossibleStart($full5);
+            my $only_ATG        = 0;
+            $all_possible_start = &FilterAllPossibleStartWithinRange($all_possible_start,0, $length_full5,
+                                                                        0, $last_possible_start_pos, $only_ATG);
+            $emptyorf->set_all_possible_start($all_possible_start);
         }
+         # End of if
+    } # End of for each empty orfs
 
-        # Do not consider too short ORF
-        my $length_orf = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
-        next if  ($length_orf < $MINLENEMPTYORF);
-
-         my $annotations       = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
-         my $seq               = $contig->get_sequence();    # Get the sequence
-            $seq               =~ s/!//g;                    # Remove ! from the sequence
-
-        my $possible_start = ();
-        my $start_info     = ();
-
-        # Other checking, such as overlapping..........
-        for (;;$start_orf += $step) {
-            my $start_info = undef;
-            # Do not consider too short ORF
-            $length_orf    = $strand_orf == 1 ? $end_orf - $start_orf + 1 : $start_orf - $end_orf + 1;
-            last if  ($length_orf < $MINLENEMPTYORF);
-
-            my $tri_nt = $isMinus ? uc (substr($seq, $start_orf - 3, 3)) : uc (substr($seq, $start_orf - 1, 3));
-               $tri_nt =~ tr/ACGT/TGCA/  if $isMinus;
-               $tri_nt = reverse $tri_nt if $isMinus;
-
-            # Check if the tri_nt is a start codon
-            my $aa     = uc($CODON_TABLE->{$tri_nt})|| "X";
-            my $accepted_aa_for_tri_nt = $ALTERNATIVE_ACCEPTED_START->{$tri_nt} || [];
-               $start_info = [$tri_nt,$start_orf] if grep { uc($_) eq "X" } @$accepted_aa_for_tri_nt;
-               $start_info = [$tri_nt,$start_orf] if grep { uc($_) eq $aa } @$accepted_aa_for_tri_nt;
-            push(@$possible_start,$start_info)    if $start_info;
-        }
-
-        my $full5              = &GetProteinForGeneWithoutIntrons($seq, $start_orf, $end_orf, $isMinus);
-        my $all_possible_start = &DefineAllPossibleStart($full5);
-
-        $emptyorf->set_possible_start($possible_start);
-        $emptyorf->set_all_possible_start($all_possible_start);
-    }
-
-    my $hash_OV    = {};
+    my $hash_OV = {};
     foreach my $emptyorf (@$EMPTYORFS) {
+        my $strand_orf                   = $emptyorf->get_strand();
+        my ($arrow,$isMinus)             = ($strand_orf == 1 ? ('==>',0) : ('<==',1));
+        my ($start_orf,$end_orf)         = (int($emptyorf->get_start()),int($emptyorf->get_end()));
+
+        my $contigname                   = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
+        my $contig                       = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
+        my $annotations                  = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
+        my $possible_start               = $emptyorf->get_all_possible_start() || {};
         my ($ToAnnot,$isOV,$start_index) = (0,0,-1);
+        my $tab_OV                       = !$hash_OV->{$contigname} ? () : $hash_OV->{$contigname};
 
-        # Process each non corresponding orf
-        # Get informations about empty ORF
-        my $possible_starts      = $emptyorf->get_possible_start();
-        my $strand_orf           = $emptyorf->get_strand();
-        my ($arrow,$isMinus)     = ($strand_orf == 1 ? ('==>',0) : ('<==',1));
-        my ($start_orf,$end_orf) = ($emptyorf->get_start(),$emptyorf->get_end());
-        my $contigname           = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
-        my $contig               = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AnnotateEmptyOrfs\n";
-        my $annotations          = $contig->get_annotations(); # Get the annotations, for the same contig belonging to empty ORF
-        my $tab_OV               = !$hash_OV->{$contigname} ? () : $hash_OV->{$contigname};
+        # If no start was found but it's a long ORF we should annot it.
+        my $new_start   = $emptyorf->get_start();
+        my $first_aa_start_pos = -1;
 
-        # The only case to annotate an ORF without know start is when it is long enough
-        if (!$possible_starts || scalar(@$possible_starts) == 0) {
-            my ($min_orf,$max_orf) = ($strand_orf == 1 ? ($start_orf,$end_orf) : ($end_orf,$start_orf));
-            my $isLongOrf = ((($max_orf-$min_orf+1)/3)-1 >= $OVERLAPORFOVGENE) ? 1 : 0;
-            if ($isLongOrf) {
-                # Add note about no start found
-                my $notes    = $emptyorf->get_notes() || [];
+        if (scalar(keys %$possible_start) == 0) {
+            my $isLong = (((abs($start_orf-$end_orf)+1)/3)-1) >= $OVERLAPORFOVGENE;
+            if ( $isLong || $emptyorf->get_matchEndo() ) {
+                $ToAnnot  = 1;
+                my $notes = $emptyorf->get_notes() || [];
                 push(@$notes, "no initiation codon identified");
                 $emptyorf->set_notes($notes);
+                $emptyorf->set_isLong($isLong);
             }
-        }
-
-        $ToAnnot = 1 if $emptyorf->get_matchEndo();
-
-        if ($ToAnnot != 1) {
-            foreach my $possible_start (@$possible_starts) {
-                $start_index++;
-                # Accept only ATG as start codon for the ORF
-                # then all the other start codons will be considered as alternative start codons
-                my $tri_nt    = $possible_start->[0];
-
-                $start_orf    = $possible_start->[1];
-
-                # Use the strand of the ORF to define the min and max of the ORF
-                my ($min_orf,$max_orf) = ($strand_orf == 1 ? ($start_orf,$end_orf) : ($end_orf,$start_orf));
-
-                # Special case annotate if the ORF is long enough even if it overlaps a gene
-                my $isLongOrf = ((($max_orf-$min_orf+1)/3)-1 >= $OVERLAPORFOVGENE) ? 1 : 0;
-                $ToAnnot      = 1 if $isLongOrf;
+        } else {
+            foreach my $aa_start_pos ((sort { $a <=> $b } keys %$possible_start)) {
+                my $aa_start = $possible_start->{$aa_start_pos}->{'aa'};
 
                 # Check if the ORF overlaps a gene or not.
-                my $annot_who_overlap = &WhatOverlapsThis($start_orf,$end_orf,$contig);
+                $new_start = !$isMinus ? ($start_orf + $aa_start_pos*3) : ($start_orf - $aa_start_pos*3);
+                my $annot_who_overlap = &WhatOverlapsThis($new_start,$end_orf,$contig);
                 @$annot_who_overlap   = grep { my $name = $_->[0]->[2]->get_genename(); $name =~ m/^trn/i || ($name !~ m/rrn5/i && $name !~ m/rnpb/i && $name !~ m/rns/i && $name !~ m/rnl/i && $name !~ m/ssra/i) } @$annot_who_overlap;
 
                 # If it does not overlap a gene, then it is annotated
                 if (scalar(@$annot_who_overlap) == 0) {
+                    $first_aa_start_pos = $aa_start_pos;
                     $ToAnnot = 1;
                     last;
-                }
-                # If it overlaps a gene, check if we need to annotate.
-                else {
-                    ($tab_OV,$isOV,$ToAnnot) = &CheckIfOrfIsToAnnot($annot_who_overlap,$min_orf,$max_orf,$emptyorf,$tab_OV,$isOV,$isLongOrf);
-                    last if $ToAnnot;
+                } else {
+                    # If it overlaps a gene, check if we need to annotate.
+                    my ($min_orf,$max_orf) = !$isMinus ? ($new_start, $end_orf) : ($end_orf,$new_start);
+                    ($tab_OV,$isOV,$ToAnnot) = &CheckIfOrfIsToAnnot($annot_who_overlap,$min_orf,$max_orf,$emptyorf,$tab_OV,$isOV,$emptyorf->get_isLong() || 0);
+                    $first_aa_start_pos = $aa_start_pos if $ToAnnot;
+                    last                                if $ToAnnot;
                 }
             }
         }
 
         # Add information about first ATG
         my $firstATG = -1;
-        if (@$possible_starts != 0) {
-            foreach my $possible_start (@$possible_starts[$start_index..$#$possible_starts]) {
-                next if $possible_start->[0] ne "ATG";
-                $firstATG = $possible_start->[1];
-                last;
-            }
+        foreach my $aa_pos (keys %$possible_start) {
+            next if int($aa_pos) < $first_aa_start_pos;
+            next if lc($possible_start->{$aa_pos}->{'aa'})  ne "m";
+            $firstATG = !$isMinus ? ($start_orf + $aa_pos*3) : ($start_orf - $aa_pos*3);
         }
 
         # Annotate the ORF
         if ( $ToAnnot == 1) {
-
-            my $notes = $emptyorf->get_notes() || [];
-
-            # print Data::Dumper->Dump([$notes], [qw(*!!!!!!!!!!!!!notes!!!!!!!!!!!!!!)]);
-
-
             if ($firstATG == -1) {
+                my $notes    = $emptyorf->get_notes() || [];
                 push(@$notes, "no ATG initiation codon identified");
-            }
-            if ($firstATG != -1 && $start_orf != $firstATG) {
-                push(@$notes, "first ATG found at position $firstATG");
+                $emptyorf->set_notes($notes);
+            } else {
+                if ($new_start != $firstATG) {
+                    my $notes    = $emptyorf->get_notes() || [];
+                    push(@$notes, "first ATG found at position $firstATG");
+                    $emptyorf->set_notes($notes);
+                }
             }
 
-            $emptyorf->set_notes($notes);
-            my $orfannot = &CreateOrfAnnot($end_orf,$start_orf,$isMinus,$possible_starts,$emptyorf);
-
-            my $startline = $orfannot->get_startline();
-            # print Data::Dumper->Dump([$orfannot], [qw(*--->orfannot!!!!!!!!!!!!!!)]) if $startline =~ /dpo/;
-            # print Data::Dumper->Dump([$isOV], [qw(*--->isOV!!!!!!!!!!!!!!)]) if $startline =~ /dpo/;
+            my $orfannot = &CreateOrfAnnot($end_orf,$new_start,$isMinus,$emptyorf);
             &AddAnnotToPirMaster($contigname,$orfannot);
-
             push(@$tab_OV,$orfannot) if $isOV;
         } # End of if
         $hash_OV->{$contigname} = $tab_OV;
-    } # End of for each empty orfs
-    # print Data::Dumper->Dump([$hash_OV], [qw(*--->hash_OV!!!!!!!!!!!!!!)]);
+    } # End of each empty orfs
     &RemovedOVOrfs($hash_OV);
 }
 
@@ -6483,7 +6440,7 @@ sub CheckIfOrfIsToAnnot {
             my $feature_contain         = $features_who_overlap->[2]->containStruc || 0;
 
             #       ------------         ORF
-            # * ------------------- **   Gene
+            # * ------------------- **   Gene || ORF
             return ($tab_OV,1,$ToAnnot) if ( ($features_min <= $min_orf && $features_max >= $max_orf) && $feature_annot_type eq "G" );
             return ($tab_OV,1,$ToAnnot) if ( ($features_min <= $min_orf && $features_max >= $max_orf) && $feature_annot_type eq "O" );
 
@@ -6582,7 +6539,7 @@ sub DefineCutForGeneWithIntron {
 }
 
 sub CreateOrfAnnot {
-    my ($end_orf,$start_orf,$isMinus,$possible_starts, $empty_orf) = @_;
+    my ($end_orf,$start_orf,$isMinus,$empty_orf) = @_;
 
     my $arrow   = !$isMinus ? "==>" : "<==";
     my $orfsize = !$isMinus ? (($end_orf - $start_orf + 1)/3) - 1 : (($start_orf - $end_orf + 1)/3) -1;
@@ -6611,7 +6568,7 @@ sub CreateOrfAnnot {
                                      direction => $arrow,
                                      startline => $startline,
                                      endline   => $endline,
-                                     possStart => $possible_starts
+                                     matchEndo => $empty_orf->get_matchEndo(),
                                    );
     return ($orfannot);
 }
@@ -8573,9 +8530,7 @@ sub AnnotAlreadyAtSamePlace {
 } # End sub
 
 sub WhatOverlapsThis {
-    my $wstart     = shift;
-    my $wend       = shift;
-    my $contig     = shift;
+    my ($wstart,$wend,$contig) = @_;
 
     my $contiglen  = $contig->get_sequencelength();
     my $annotlist  = $contig->get_annotations() || [];
