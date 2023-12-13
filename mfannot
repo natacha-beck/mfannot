@@ -5599,6 +5599,8 @@ sub ReconstructFullRNA {
             my $startline      = ";     G-${genename}${add_to_plus} ==> start";
                $start_comment .= " intron boundaries not identified, needs expert intervention" if $intron_overlapping;
                $startline     .= ";; $start_comment" if $start_comment ne "";
+               # Replace ;; by ;; mfannot: in case of startline
+               $startline     =~ s/;;/;; mfannot:/ if defined $startline;
             my $endline        = ";     G-${genename}${add_to_plus} ==> end";
                $endline       .= ";; $end_comment"  if $end_comment ne "";
             my $annot          = new PirObject::AnnotPair(
@@ -5619,6 +5621,8 @@ sub ReconstructFullRNA {
             my $startline      = ";     G-${genename}${add_to_minus} <== start";
                $start_comment .= " intron boundaries not identified, needs expert intervention" if $intron_overlapping;
                $startline     .= ";; $start_comment" if $start_comment ne "";
+                # Replace ;; by ;; mfannot: in case of startline
+                $startline     =~ s/;;/;; mfannot:/ if defined $startline;
             my $endline        = ";     G-${genename}${add_to_minus} <== end";
                $endline       .= ";; $end_comment"  if $end_comment ne "";
             my $annot          = new PirObject::AnnotPair(
@@ -5672,6 +5676,10 @@ sub AnnotateFromExternalAPC {
             my $direction  = $annot->get_direction()  || $arrow;
             my $score      = $annot->get_score() || "";
             my $start_line = $annot->get_startline();
+
+            # In case of startline that match with ;; replace it by ;; mfannot:
+               $start_line =~ s/;;/;; mfannot:/ if defined $start_line;
+
                $start_line = ";     G-$genename $arrow start" if !defined($start_line);
             my $end_line   = $annot->get_endline();  # Can be undef
                $end_line   = ";     G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
