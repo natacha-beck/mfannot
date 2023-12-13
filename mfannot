@@ -874,41 +874,60 @@ sub read_and_change_EGC_file {
 }
 
 sub CleanPirmaster {
-    my $AP_to_rm = [];
+     my $AP_to_rm = [];
 
-    # Check each annot push all annot to remove on $AP_to_rm, changed the other one
-    my $isUnique = {};
-    my $count    = 0;
-    foreach my $contig (@$contigs) {
+     # Check each annot push all annot to remove on $AP_to_rm, changed the other one
+     my $isUnique = {};
+     my $count    = 0;
+     foreach my $contig (@$contigs) {
+         my $annotations = $contig->get_annotations();
+         my $contigname  = $contig->get_name();
+         my $comments    = $contig->get_namecomments() || "";
+         my $header      = $contigname.$comments;
+         $isUnique->{$header}++;
+         die "Two contigs have same header '$header'\n" if $isUnique->{$header} > 1;
+         $count++;
+         $CONTIG->{"contig$count"} = "$header";
+         $contig->set_namecomments("");
+         $contig->set_name("contig$count");
+         my $seq = $contig->get_sequence();
+            $seq =~ s/\!//g;
+            $seq = $seq;
+         $contig->set_sequence($seq);
+         foreach my $AP (@$annotations) {
+             my $type      = $AP->get_type();
+             my $startline = $AP->get_startline() || "";
+             my $endline   = $AP->get_endline()   || "";
+             my ($new_startline,$new_endline) = ("","");
+             my $id_AP     = $1 if scalar($AP) =~ m/0x(.+)\)/;
+             # push (@$AP_to_rm, $id_AP) if $startline =~ m/;;\s+mfannot:/;
+             next if ($type eq "C");
+             $AP->set_type("C");
 
-    my $annotations = $contig->get_annotations();
-    my $contigname  = $contig->get_name();
-    my $comments    = $contig->get_namecomments() || "";
-    my $header      = $contigname.$comments;
-    $isUnique->{$header}++;
-    die "Two contigs have same header '$header'\n" if $isUnique->{$header} > 1;
-    $count++;
-    $CONTIG->{"contig$count"} = "$header";
-    $contig->set_namecomments("");
-    $contig->set_name("contig$count");
-    my $seq = $contig->get_sequence();
-    $seq =~ s/\!//g;
-    $seq = $seq;
-    $contig->set_sequence($seq);
-    foreach my $AP (@$annotations) {
-        my $type      = $AP->get_type();
-        my $startline = $AP->get_startline() || "";
-        my $endline   = $AP->get_endline()   || "";
-        my ($new_startline,$new_endline) = ("","");
-        my $id_AP     = $1 if scalar($AP) =~ m/0x(.+)\)/;
-
-        next if ($type eq "C");
-        # Should be anything else than C but put condition just in case
-        push (@$AP_to_rm, $id_AP) if $startline !~ m/;;\s+mfannot:/;
-        }
-    &Remove_AP($AP_to_rm,$contig);
-    }
-    $pirmaster->ObjectToMasterfile("$TMPDIR/Masterfile_copy");
+             if ($endline ne "" && $startline ne "") {
+                 $new_startline = $2 if $startline =~ m/(.+)\s*(;;.+)$/ && $2 !~ m/mfannot:/;
+                 $AP->set_startline($new_startline);
+                 $AP->set_startpos() if $new_startline eq "";
+                 $new_endline   = $2 if $endline =~ m/(.+)\s*(;;.+)$/   && $2 !~ m/mfannot:/;
+                 $AP->set_endline($new_endline) ;
+                 $AP->set_endpos() if $new_endline eq "";
+                 push (@$AP_to_rm, $id_AP) if $new_endline eq "" && $new_startline eq "";
+                 next;
+             }
+             elsif ($endline eq "") {
+                 $new_startline = ";$startline ;; mfannot: no end found";
+                 $AP->set_startline($new_startline);
+                 next;
+             }
+             else {
+                 $new_endline = ";$endline ;; mfannot: no start found";
+                 $AP->set_endline($new_endline);
+                 next;
+             }
+         }
+         &Remove_AP($AP_to_rm,$contig);
+     }
+     $pirmaster->ObjectToMasterfile("$TMPDIR/Masterfile_copy");
 }
 
 sub Remove_AP {
