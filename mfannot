@@ -1883,7 +1883,7 @@ sub AddCommentForStart {
         my $startline = $hypprot->get_startline();
         $startline    = $startline =~ /\.+;;/ ?
           $startline . " $warning":
-          $startline . " ;; $warning";
+          $startline . " ;; mfannot: $warning";
         $hypprot->set_startline($startline);
     }
     if ((ref($hypprot) && $hypprot->isa('PirObject::HypProt'))) {
@@ -1952,7 +1952,7 @@ sub AdjustStartAndEndByHMMForHMM {
 
     $startline    = $startline =~ /;;/ ?
       $startline .   " $comment":
-      $startline . ";; $comment";
+      $startline . ";; mfannot: $comment";
     $annot->set_startline($startline);
     return;
 
@@ -6723,7 +6723,7 @@ sub AddEndoNoteToEmptyOrf {
                 my $name           = $endo->get_genename();
                 my $note           = $name;
                 $note             .= " (likely a pseudo-gene, introduced by plasmid integration)" if $ENDO_HASH->{$name} eq "PSEUDO";
-                $note             .= " ;; evalue:$fEvalue, match: $hmm_matches";
+                $note             .= " ;; mfannot: evalue:$fEvalue, match: $hmm_matches";
                 push(@$empty_orf_note, $note);
                 $orf->set_notes($empty_orf_note);
 
@@ -7426,7 +7426,7 @@ sub CreateAllGeneAnnotFindByHMM {
             foreach my $exon (@$tab_exons) {
                 my $HMMmatch  = $exon->get_HMMmatch();
                 my $startline = $exon->get_startline();
-                   $startline = "$startline ;; $HMMmatch";
+                   $startline = "$startline ;; mfannot: $HMMmatch";
                 $exon->set_startline($startline);
                 &AddAnnotToPirMaster($contigname,$exon);
             }
@@ -8057,7 +8057,7 @@ sub FindStartAndStopForSimpleGeneIdByHMM {
     $annot->set_startpos($start);
     $annot->set_endpos($end);
     my $startline = $annot->get_startline();
-    $startline    = "$startline ;; $comment" if $comment ne "";
+    $startline    = "$startline ;; mfannot: $comment" if $comment ne "";
     $annot->set_startline($startline);
 
     return $annot;
@@ -8107,7 +8107,7 @@ sub FindStartAndStopForComplexGeneIdByHMM {
 
     $annot->set_startpos($start);
     my $startline = $annot->get_startline();
-    $startline    = "$startline ;; $comment" if $comment ne "";
+    $startline    = "$startline ;; mfannot: $comment" if $comment ne "";
     $annot->set_startline($startline);
 }
 
