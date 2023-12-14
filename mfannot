@@ -901,28 +901,42 @@ sub CleanPirmaster {
              my ($new_startline,$new_endline) = ("","");
              my $id_AP     = $1 if scalar($AP) =~ m/0x(.+)\)/;
              # push (@$AP_to_rm, $id_AP) if $startline =~ m/;;\s+mfannot:/;
-             next if ($type eq "C");
+             next if ($type eq "C") && ($startline && $startline !~ m/^;;\s+mfannot:/
+                                     || $endline   && $endline   !~ m/^;;\s+mfannot:/);
              $AP->set_type("C");
 
              if ($endline ne "" && $startline ne "") {
-                 $new_startline = $2 if $startline =~ m/(.+)\s*(;;.+)$/ && $2 !~ m/mfannot:/;
+                # Do not extract if
+                 $new_startline = $2 if $startline !~ m/^;; mfannot:/ && $startline =~ m/(.+)\s*(;;.+)$/ && $2 !~ m/mfannot:/;
                  $AP->set_startline($new_startline);
                  $AP->set_startpos() if $new_startline eq "";
-                 $new_endline   = $2 if $endline =~ m/(.+)\s*(;;.+)$/   && $2 !~ m/mfannot:/;
+
+                 $new_endline   = $2 if $endline !~ m/^;; mfannot:/ && $endline =~ m/(.+)\s*(;;.+)$/   && $2 !~ m/mfannot:/;
                  $AP->set_endline($new_endline) ;
                  $AP->set_endpos() if $new_endline eq "";
+
                  push (@$AP_to_rm, $id_AP) if $new_endline eq "" && $new_startline eq "";
                  next;
              }
              elsif ($endline eq "") {
-                 $new_startline = ";$startline ;; mfannot: no end found";
-                 $AP->set_startline($new_startline);
-                 next;
+                if ($startline =~ m/^;; mfannot:/) {
+                    push (@$AP_to_rm, $id_AP);
+                    next;
+                } else {
+                    $new_startline = ";$startline ;; mfannot: no end found";
+                }
+                $AP->set_startline($new_startline);
+                next;
              }
              else {
-                 $new_endline = ";$endline ;; mfannot: no start found";
-                 $AP->set_endline($new_endline);
-                 next;
+                if ($endline =~ m/^;; mfannot:/) {
+                    push (@$AP_to_rm, $id_AP);
+                    next;
+                } else {
+                    $new_endline = ";$endline ;; mfannot: no start found";
+                }
+                $AP->set_endline($new_endline);
+                next;
              }
          }
          &Remove_AP($AP_to_rm,$contig);
@@ -5603,6 +5617,8 @@ sub ReconstructFullRNA {
                $startline     =~ s/;;/;; mfannot:/ if defined $startline && $startline !~ m/^;; mfannot:/;
             my $endline        = ";     G-${genename}${add_to_plus} ==> end";
                $endline       .= ";; $end_comment"  if $end_comment ne "";
+               # Replace ;; by ;; mfannot: in case of endline
+               $endline       =~ s/;;/;; mfannot:/ if defined $endline && $endline !~ m/^;; mfannot:/;
             my $annot          = new PirObject::AnnotPair(
                                         type            => "G",
                                         genename        => $genename,
