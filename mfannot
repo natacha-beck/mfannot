@@ -1914,15 +1914,7 @@ sub AdjustStartAndEndByHMMForHMM {
     my ($StartOrf,$EndOrf)  = ($1,$2) if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
     my $end                 = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
 
-
-    my $posHMMmatch         = $annot->get_posHMMmatch();
-    my $hmm_matches_comment = "";
-    my $hmm_matches         = join(", ",@{$annot->get_allposHMMmatch()});
-    if ($hmm_matches ne "") {
-        $hmm_matches_comment = " HMM matches from $hmm_matches.";
-    } elsif ($posHMMmatch ne "") {
-        $hmm_matches_comment = " HMM match from $posHMMmatch.";
-    }
+    my $hmm_matches_comment = &HMMmatchComment($annot);
 
     # If start is negative, we set it to the start of the ORF
     $start  = $StartOrf if ($start < $StartOrf && !$isMinus);
@@ -6452,7 +6444,7 @@ sub AnnotateEmptyOrfs {
 
         # Add information about first ATG
         my $firstATG = -1;
-        foreach my $aa_pos (keys %$possible_start) {
+        foreach my $aa_pos ( sort { int($b) <=> int($a) } keys %$possible_start) {
             next if int($aa_pos) < $first_aa_start_pos;
             next if lc($possible_start->{$aa_pos}->{'aa'})  ne "m";
             $firstATG = !$isMinus ? ($start_orf + $aa_pos*3) : ($start_orf - $aa_pos*3);
@@ -6612,7 +6604,11 @@ sub CreateOrfAnnot {
     $startline   .= " /note=(partially similar to $similar_prot)" if $similar_prot;
 
     # Add other notes
-    my $notes = $empty_orf->get_notes() || undef;
+    my $hmm_matches_comment = &HMMmatchComment($empty_orf);
+
+    my $notes = $empty_orf->get_notes();
+    push(@$notes, $hmm_matches_comment) if $hmm_matches_comment;
+    $empty_orf->set_notes($notes);
     my $str_notes = join(', ', @$notes) if $notes;
     $startline .= " /note=$str_notes" if $str_notes;
 
@@ -6629,6 +6625,22 @@ sub CreateOrfAnnot {
                                      matchEndo => $empty_orf->get_matchEndo(),
                                    );
     return ($orfannot);
+}
+
+sub HMMmatchComment {
+    my ($orf) = @_;
+
+    my $notes = $orf->get_notes() || undef;
+    my $posHMMmatch         = $orf->get_posHMMmatch() || "";
+    my $hmm_matches_comment = "";
+    my $hmm_matches         = join(", ",@{$orf->get_allposHMMmatch()});
+    if ($hmm_matches ne "") {
+        $hmm_matches_comment = " match: $hmm_matches";
+    } elsif ($posHMMmatch ne "") {
+        $hmm_matches_comment = " match: $posHMMmatch";
+    }
+
+    return $hmm_matches_comment;
 }
 
 sub RemovedOVOrfs {
@@ -6720,8 +6732,14 @@ sub AddEndoNoteToEmptyOrf {
         foreach my $contig_name_match( keys %$info_by_endo) {
             my $annots  = $info_by_endo->{$contig_name_match}->[0];
             my $fEvalue = $info_by_endo->{$contig_name_match}->[1]->fEvalue;
-            foreach my $match_number (keys %$annots){
-                my $endo = $annots->{$match_number};
+            my $allposHMMmatch = [];
+
+            # Sort the annotations hash by score before foreach loop
+            my @sorted_annots = sort { &CompareHighPrecisionFloats($a->get_score(),$b->get_score) } values %$annots;
+
+            # Iterate over the @sorted_annots
+            for (my $match_number = 0; $match_number < @sorted_annots; $match_number++) {
+                my $endo = $sorted_annots[$match_number];
 
                 next if $orf_strand ne $endo->get_direction();
 
@@ -6743,18 +6761,23 @@ sub AddEndoNoteToEmptyOrf {
                 my $distance = $second_start - $first_start;
 
                 next if ($distance % 3 != 0);
+                # Add information about HMMmatch to the ORF
+                push(@$allposHMMmatch, $hmm_matches);
+                $orf->set_allposHMMmatch($allposHMMmatch);
+
                 my $empty_orf_note = $orf->get_notes() || [];
                 my $name           = $endo->get_genename();
-                my $note           = $name;
-                $note             .= " (likely a pseudo-gene, introduced by plasmid integration)" if $ENDO_HASH->{$name} eq "PSEUDO";
-                $note             .= " ;; mfannot: evalue:$fEvalue, match: $hmm_matches";
-                push(@$empty_orf_note, $note);
-                $orf->set_notes($empty_orf_note);
+                if ($match_number == 0) {
+                    my $note           = $name;
+                    $note             .= " (likely a pseudo-gene, introduced by plasmid integration)" if $ENDO_HASH->{$name} eq "PSEUDO";
+                    $note             .= " ;; mfannot: evalue:$fEvalue";
+                    push(@$empty_orf_note, $note);
+                    $orf->set_notes($empty_orf_note);
+                }
 
                 # Add information about HMMmatch to the ORF
                 $orf->set_matchEndo(1);
                 $orf->set_posHMMmatch($endo->get_posHMMmatch());
-                last
             }
         }
     }
@@ -7014,7 +7037,10 @@ sub AnnotateIntronicOrfs {
         }
 
         # Add notes information on startline
+        my $hmm_matches_comment = &HMMmatchComment($selected_orf);
+
         my $notes = $selected_orf->get_notes() || undef;
+        push(@$notes, $hmm_matches_comment) if $hmm_matches_comment;
         my $str_notes = join(', ', @$notes) if $notes;
         $startline .= " /note=$str_notes" if $str_notes;
 
