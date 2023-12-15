@@ -5028,7 +5028,7 @@ sub AnnotateMfFromHYPPROTSArray {
                $start_line .= ";     G-$linename-I$number $arrow start";
                $start_line .= " /group=$type" if $type;
                $end_line   .= ";     G-$linename-I$number $arrow end";
-           my $I_startwarning = "$comment" if $comment;
+            my $I_startwarning = "$comment" if $comment;
 
             my $annot = new PirObject::AnnotPair (       type         => $A_type || "I",
                                                          genename     => "$name",
@@ -5043,7 +5043,7 @@ sub AnnotateMfFromHYPPROTSArray {
 
             $I_startline   .= " ;; mfannot: $I_startwarning" if $I_startwarning;
             if ($I_startwarning) {
-                            $I_startwarning .= $I_startwarning =~ m/ ;; mfannot:/ ?
+                            $I_startwarning .= $I_startwarning =~ m/\.+;; mfannot:/ ?
                            " / $I_startwarning"
                          : " ;; mfannot: $I_startwarning";
             }
