@@ -6630,7 +6630,6 @@ sub CreateOrfAnnot {
 sub HMMmatchComment {
     my ($orf) = @_;
 
-    my $notes = $orf->get_notes() || undef;
     my $posHMMmatch         = $orf->get_posHMMmatch() || "";
     my $hmm_matches_comment = "";
     my $hmm_matches         = join(", ",@{$orf->get_allposHMMmatch()});
