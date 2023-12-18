@@ -5686,10 +5686,10 @@ sub AnnotateFromExternalAPC {
             my $start_line = $annot->get_startline();
 
             # In case of startline that match with ;; replace it by ;; mfannot:
-               $start_line =~ s/;;/;; mfannot:/ if defined $start_line && $start_line !~ m/^;; mfannot:/;
-
+               $start_line =~ s/;;/;; mfannot:/ if defined $start_line && $type eq "C";
                $start_line = ";     G-$genename $arrow start" if !defined($start_line);
             my $end_line   = $annot->get_endline();  # Can be undef
+                $end_line  =~ s/;;/;; mfannot:/ if defined $end_line && $type eq "C";
                $end_line   = ";     G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
 
             my ($AP_start, $AP_stop) = $startpos > $endpos ? ($endpos, $startpos) : ($startpos, $endpos);
@@ -6396,6 +6396,7 @@ sub AnnotateEmptyOrfs {
     foreach my $emptyorf (@$EMPTYORFS) {
         my $strand_orf                   = $emptyorf->get_strand();
         my ($arrow,$isMinus)             = ($strand_orf == 1 ? ('==>',0) : ('<==',1));
+        next if $emptyorf->get_strand() == 2; # Skip ORF on both strand
         my ($start_orf,$end_orf)         = (int($emptyorf->get_start()),int($emptyorf->get_end()));
 
         my $contigname                   = $emptyorf->get_contigname();     # Get the contigname corresponding to the empty ORFs
@@ -6634,9 +6635,9 @@ sub HMMmatchComment {
     my $hmm_matches_comment = "";
     my $hmm_matches         = join(", ",@{$orf->get_allposHMMmatch()});
     if ($hmm_matches ne "") {
-        $hmm_matches_comment = " match: $hmm_matches";
+        $hmm_matches_comment = " HMM match: $hmm_matches";
     } elsif ($posHMMmatch ne "") {
-        $hmm_matches_comment = " match: $posHMMmatch";
+        $hmm_matches_comment = " HMM match: $posHMMmatch";
     }
 
     return $hmm_matches_comment;
