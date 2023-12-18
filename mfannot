@@ -2927,7 +2927,9 @@ sub FindExonsInHypProtArray {
                     # Get position of * if any in $aa_seq
                     my $pos_stop    = index($aa_seq, "*");
                     # Sequence should be shorten at the first * found
-                    $dnaend         = !$isMinus ? $start + ($pos_stop * 3) - 1 : $start - ($pos_stop * 3) + 1;
+                    if ($pos_stop != -1) {
+                        $dnaend = !$isMinus ? $start + ($pos_stop * 3) - 1 : $start - ($pos_stop * 3) + 1;
+                    }
                 }
 
                 my $hypprotexon = new PirObject::Exon (
