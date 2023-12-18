@@ -2906,15 +2906,37 @@ sub FindExonsInHypProtArray {
             my $hypprotexonarray = $hypprot->exons;
             for (my $i = 0; $i < @exon_start_end; $i++){
                 # Fill information about exon
-                my $attributes      = $exon_start_end[$i]->[4] || "";
+                my ($dnastart, $dnaend, $strand, $attributes, $FirstExoMatch, $exoscore) = (
+                                                                    $exon_start_end[$i]->[0],
+                                                                    $exon_start_end[$i]->[1],
+                                                                    $exon_start_end[$i]->[2],
+                                                                    $exon_start_end[$i]->[3],
+                                                                    $exon_start_end[$i]->[4],
+                                                                    $exon_start_end[$i]->[6]);
+
                 my $frameshift_size = $1 if $attributes =~ m/frameshifts\s+(\d+)/;
+
+                # Correct last exon stop if needed (presence of multiple *)
+                if ($i == scalar(@exon_start_end) - 1) {
+                    my $exon_length = !$isMinus ? $dnaend - $dnastart + 1 : $dnastart - $dnaend + 1;
+                    my $modulo_3    = $exon_length % 3;
+                    my $isMinus     = $strand eq "+" ? 0 : 1;
+                    my $start       = !$isMinus ? $dnastart + $modulo_3 : $dnastart - $modulo_3;
+                    my $nt_seq      = &Get_nt_seq($dna_seq, $start, $dnaend, $isMinus);
+                    my $aa_seq      = &TranslateInProt($nt_seq);
+                    # Get position of * if any in $aa_seq
+                    my $pos_stop    = index($aa_seq, "*");
+                    # Sequence should be shorten at the first * found
+                    $dnaend         = !$isMinus ? $start + ($pos_stop * 3) - 1 : $start - ($pos_stop * 3) + 1;
+                }
+
                 my $hypprotexon = new PirObject::Exon (
-                                                       dnastart       => $exon_start_end[$i]->[0],
-                                                       dnaend         => $exon_start_end[$i]->[1],
-                                                       strand         => $exon_start_end[$i]->[2],
-                                                       exoscore       => $exon_start_end[$i]->[6],
+                                                       dnastart       => $dnastart,
+                                                       dnaend         => $dnaend,
+                                                       strand         => $strand,
+                                                       FirstExoMatch  => $FirstExoMatch,
+                                                       exoscore       => $exoscore,
                                                        frameshiftsize => $frameshift_size,
-                                                       FirstExoMatch  => $exon_start_end[$i]->[3],
                                                       );
                 push (@$hypprotexonarray, $hypprotexon);
             }
@@ -3124,7 +3146,7 @@ sub Create_alternative_prot {
        my ($start,$stop) = ( $exon_coord->[2] eq "-" ?
                            ( (length($use_seq) + 1 - $exon_coord->[0]),(length($use_seq) + 1 - $exon_coord->[1]))
                            : ($exon_coord->[0],$exon_coord->[1]));
-        my $exon_seq = substr($use_seq,$start-1,$stop-$start+1);
+        my $exon_seq    = substr($use_seq,$start-1,$stop-$start+1);
         $with_exons    .= $exon_seq;
         $without_exons .= $exon_seq if $count ne $i;
         $count++;
@@ -8775,8 +8797,8 @@ sub Length_annot {
 } # End sub
 
 sub TranslateInProt {
-    my $nt_seq            = shift;
-    my $end_of_first_exon = shift || -1;
+    my $nt_seq                  = shift;
+    my $end_of_first_exon       = shift || -1;
     my $end_of_first_exon_in_nt = $end_of_first_exon * 3;
 
     my $prot_seq = "";
