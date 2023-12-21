@@ -8365,30 +8365,48 @@ sub LcIntrons {
         my $seq = $contig->get_sequence();
            $seq =~ s/!//g;
         my $annotations = $contig->get_annotations();
+
         foreach my $annot (@$annotations) {
             my $type = $annot->get_type();
-            next if $type ne "I";
-            my $intron_type = $annot->get_introntype();
-            next if $intron_type && $intron_type =~ m/,/;
-            &LCIntronInSeqContig($annot->get_startpos(),$annot->get_endpos(),$contig);
+            next if $type ne "I" && $type ne "O";
+            if ($type eq "I") {
+                my $intron_type = $annot->get_introntype();
+                &LCSeqInContig($annot->get_startpos(),$annot->get_endpos(),$contig);
+            }
         }
+
         foreach my $annot (@$annotations) {
             my $genename = $annot->get_genename();
             next if !$genename || $genename ne "comment";
             my $start_line = $annot->get_startline();
             next if $start_line !~ m/group=/;
-            &LCIntronInSeqContig($annot->get_startpos(),$annot->get_endpos(),$contig);
+            &LCSeqInContig($annot->get_startpos(),$annot->get_endpos(),$contig);
+        }
+
+        foreach my $annot (@$annotations) {
+            next if !($annot->get_type() eq "G" && !$annot->get_idbyexo());
+            &UCSeqInContig($annot->get_startpos(),$annot->get_endpos(),$contig);
         }
     }
 }
 
-sub LCIntronInSeqContig {
+sub LCSeqInContig {
     my ($AP_start,$AP_end,$contig) = @_;
 
     my $seq = $contig->get_sequence();
     my ($AP_min,$AP_max) = $AP_start < $AP_end ? ($AP_start,$AP_end) : ($AP_end,$AP_start);
-    my $intron_seq = lc(substr($seq,$AP_min-1,$AP_max-$AP_min+1));
-    substr($seq,$AP_min-1,length($intron_seq),$intron_seq);
+    my $lc_seq = lc(substr($seq,$AP_min-1,$AP_max-$AP_min+1));
+    substr($seq,$AP_min-1,length($lc_seq),$lc_seq);
+    $contig->set_sequence($seq);
+}
+
+sub UCSeqInContig {
+    my ($AP_start,$AP_end,$contig) = @_;
+
+    my $seq = $contig->get_sequence();
+    my ($AP_min,$AP_max) = $AP_start < $AP_end ? ($AP_start,$AP_end) : ($AP_end,$AP_start);
+    my $uc_seq = uc(substr($seq,$AP_min-1,$AP_max-$AP_min+1));
+    substr($seq,$AP_min-1,length($uc_seq),$uc_seq);
     $contig->set_sequence($seq);
 }
 
@@ -8540,6 +8558,9 @@ sub AddAnnotToPirMaster {
     # return 0 means function quit before the end, => rediscovered
     my $contigname  = shift;
     my $annot       = shift;
+
+    # print Data::Dumper->Dump([$annot],["====annot===="]);
+
     my $contig      = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AddAnnotToPirMaster\n";
     my $annotations = $contig->get_annotations;
 
