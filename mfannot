@@ -5469,7 +5469,7 @@ sub CreateContigFile {
     mkdir("$TMPDIR/Contig_ext",0700);
     my $contigs = $pirmaster->get_contigs();
     foreach my $contig (@$contigs) {
-        my $seq       = $contig->get_sequence();
+        my $seq       = uc($contig->get_sequence());
            $seq       =~ s/!//g;
         my $name      = $contig->get_name();
 
