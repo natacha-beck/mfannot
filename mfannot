@@ -5710,10 +5710,10 @@ sub AnnotateFromExternalAPC {
             my $start_line = $annot->get_startline();
 
             # In case of startline that match with ;; replace it by ;; mfannot:
-               $start_line =~ s/;;/;; mfannot:/ if defined $start_line && $type eq "C";
+               $start_line =~ s/;;/;; mfannot:/ if defined $start_line;
                $start_line = ";     G-$genename $arrow start" if !defined($start_line);
             my $end_line   = $annot->get_endline();  # Can be undef
-                $end_line  =~ s/;;/;; mfannot:/ if defined $end_line && $type eq "C";
+                $end_line  =~ s/;;/;; mfannot:/ if defined $end_line;
                $end_line   = ";     G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
 
             my ($AP_start, $AP_stop) = $startpos > $endpos ? ($endpos, $startpos) : ($startpos, $endpos);
