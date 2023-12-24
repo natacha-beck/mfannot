@@ -2877,9 +2877,9 @@ sub FindExonsInHypProtArray {
             }
 
             my $hypprot = undef;
-            my ($start,$end) = ($exon_start_end[0]->[0],$exon_start_end[-1]->[1]);
+            my ($start,$end)        = ($exon_start_end[0]->[0],$exon_start_end[-1]->[1]);
             my $FirstExonerateMatch = $exon_start_end[0]->[3];
-            my $strand = $isMinus ? -1 : 1;
+            my $strand              = $isMinus ? -1 : 1;
             $hypprot = new PirObject::HypProt (
                                                   name       => $name,
                                                   contigname => $contigname,
@@ -2906,7 +2906,7 @@ sub FindExonsInHypProtArray {
             my $hypprotexonarray = $hypprot->exons;
             for (my $i = 0; $i < @exon_start_end; $i++){
                 # Fill information about exon
-                my ($dnastart, $dnaend, $strand, $attributes, $FirstExoMatch, $exoscore) = (
+                my ($dnastart, $dnaend, $strand, $FirstExoMatch, $attributes, $exoscore) = (
                                                                     $exon_start_end[$i]->[0],
                                                                     $exon_start_end[$i]->[1],
                                                                     $exon_start_end[$i]->[2],
@@ -2914,7 +2914,7 @@ sub FindExonsInHypProtArray {
                                                                     $exon_start_end[$i]->[4],
                                                                     $exon_start_end[$i]->[6]);
 
-                my $frameshift_size = $1 if $attributes =~ m/frameshifts\s+(\d+)/;
+                my ($frameshift_size,$have_frameshift) = $attributes =~ m/frameshifts\s+(\d+)/ ? ($1,1) : (undef,0);
 
                 # Correct last exon stop if needed (presence of multiple *)
                 if ($i == scalar(@exon_start_end) - 1) {
@@ -2932,13 +2932,14 @@ sub FindExonsInHypProtArray {
                     }
                 }
 
+                print "   Potential frameshift in $name\n" if $have_frameshift;
                 my $hypprotexon = new PirObject::Exon (
-                                                       dnastart       => $dnastart,
-                                                       dnaend         => $dnaend,
-                                                       strand         => $strand,
-                                                       FirstExoMatch  => $FirstExoMatch,
-                                                       exoscore       => $exoscore,
-                                                       frameshiftsize => $frameshift_size,
+                                                       dnastart        => $dnastart,
+                                                       dnaend          => $dnaend,
+                                                       strand          => $strand,
+                                                       FirstExoMatch   => $FirstExoMatch,
+                                                       exoscore        => $exoscore,
+                                                       frameshiftsize  => $frameshift_size,
                                                       );
                 push (@$hypprotexonarray, $hypprotexon);
             }
@@ -5006,11 +5007,11 @@ sub AnnotateMfFromHYPPROTSArray {
         # Annotating exons
         my $number = 1;
         foreach my $exon (@$exons) {
-            my $start     = $exon->get_dnastart();
-            my $end       = $exon->get_dnaend();
-            my $strand    = $exon->get_strand();
-            my $exo_score = $exon->get_exoscore();
-            my $insertion = $exon->get_insertion();
+            my $start           = $exon->get_dnastart();
+            my $end             = $exon->get_dnaend();
+            my $strand          = $exon->get_strand();
+            my $exo_score       = $exon->get_exoscore();
+            my $insertion       = $exon->get_insertion();
             my $frameshift_size = $exon->get_frameshiftsize();
 
             my ($start_line,$end_line) = ( $ToComment ? (";",";") : ("",""));
@@ -8558,8 +8559,6 @@ sub AddAnnotToPirMaster {
     # return 0 means function quit before the end, => rediscovered
     my $contigname  = shift;
     my $annot       = shift;
-
-    # print Data::Dumper->Dump([$annot],["====annot===="]);
 
     my $contig      = $pirmaster->GetContigByName($contigname) or die "Can't get contig by name in AddAnnotToPirMaster\n";
     my $annotations = $contig->get_annotations;
