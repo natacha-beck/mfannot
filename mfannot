@@ -3763,13 +3763,17 @@ sub RunHMMSearchForMiniEx {
     foreach my $exon (@$ListHypExons) {
         my $exon_seq = $exon->{seq} || "";
         my $seq = "${prev_seq}${exon_seq}${next_seq}";
-        print $fasta_fh ">Sol_$i\n$seq\n" if $seq !~ m/\*/;
-        $i++;
+        if ($seq !~ m/\*/) {
+            print $fasta_fh ">Sol_$i\n$seq\n";
+            $i++;
+        }
     }
     $fasta_fh->close();
 
-    my $FileRes = "${ShortName}_z$z.res";
+    # Specific case if no sequence was found
+    return [] if $i == 0;
 
+    my $FileRes = "${ShortName}_z$z.res";
     my $cmd = "nice -19 $HMMSEARCHPATH -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
@@ -5711,10 +5715,10 @@ sub AnnotateFromExternalAPC {
             my $start_line = $annot->get_startline();
 
             # In case of startline that match with ;; replace it by ;; mfannot:
-               $start_line =~ s/;;/;; mfannot:/ if defined $start_line;
+               $start_line =~ s/;;/;; mfannot:/ if defined $start_line && $start_line !~ m/^;; mfannot:/;
                $start_line = ";     G-$genename $arrow start" if !defined($start_line);
             my $end_line   = $annot->get_endline();  # Can be undef
-                $end_line  =~ s/;;/;; mfannot:/ if defined $end_line;
+                $end_line  =~ s/;;/;; mfannot:/ if defined $end_line && $end_line !~ m/^;; mfannot:/;
                $end_line   = ";     G-$genename $arrow end"   if !defined($end_line) && $type eq "G";
 
             my ($AP_start, $AP_stop) = $startpos > $endpos ? ($endpos, $startpos) : ($startpos, $endpos);
