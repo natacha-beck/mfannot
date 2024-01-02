@@ -3267,12 +3267,23 @@ sub CheckRealIntrons {
             push(@$introns_to_rm,$i);
         }
     }
+
     # Removed exon and intron if necessary
     for (my $i = @$exons - 1; $i >= 0 ; $i--) {
         splice(@$exons, $i, 1) if grep($_ == $i, @$exons_to_rm);
     }
     for (my $i = @$introns - 1; $i >= 0 ; $i--) {
         splice(@$introns, $i, 1) if grep($_ == $i, @$introns_to_rm);
+    }
+
+    # Iterate over each intron and adjust the start and end of the intron
+    for (my $i = 0; $i < @$introns; $i++) {
+        my $previous_exon = $exons->[$i];
+        my $next_exon     = $exons->[$i + 1];
+        my $intron        = $introns->[$i];
+        my $isMinus       = ($intron->get_strand() eq "+" ? 0 : 1);
+        $intron->set_start(!$isMinus ? $previous_exon->get_dnaend() + 1 : $previous_exon->get_dnaend() - 1);
+        $intron->set_end(  !$isMinus ? $next_exon->get_dnastart()   - 1 : $next_exon->get_dnastart()   + 1);
     }
 }
 
