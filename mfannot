@@ -173,6 +173,7 @@ my $MINLENGTHORF;                               # This is the minimum length for
 my $MAXLENGTHFORGROUPINGORF;                    # Maximum size of a gap between 2 ORf. If 2 same ORF
 my $MAXLENINTRONS;                              # Max intron size for exonerate.
 my $MINLENEMPTYORF;                             # Minimum length for ORF empty orfs (non corresponding orfs)
+my $MINLENENDO;                                 # Minimum length for endonuclease
 my $OVERLAPPINGCUTOFF;                          # Overlapping cutoff for ORFs
 my $OVERLORFOVORF;                              # Overlapping cutoff for ORFs
 my $OVERLAPORFOVGENE;                           # Overlapping cutoff for ORFs
@@ -689,6 +690,7 @@ sub GetOptions {
     $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;     # Minimum size of a gap between 2 ORf. If 2 same ORF
     $MAXLENINTRONS           = $option->maxintronsize;     # Max intron size for exonerate.
     $MINLENEMPTYORF          = $option->minlenemptyorf;    # Minimum length for ORF empty orfs (non corresponding orfs)
+    $MINLENENDO              = $option->endolen;           # Minimum length for endonuclease
     $OVERLAPPINGCUTOFF       = $option->overlappingcutoff; # Overlapping cutoff for ORFs
     $OVERLORFOVORF           = $option->orfOVorf;          # Overlapping cutoff for ORFs
     $OVERLAPORFOVGENE        = $option->orfOVgene;         # Overlapping cutoff for ORFs
@@ -6367,7 +6369,7 @@ sub AddCommentForFusion {
 
 sub AnnotateEmptyOrfs {
 
-    my $MINLENEMPTYORF_IN_AA = $MINLENEMPTYORF / 3;
+    my $MINLENEMPTYORF_IN_AA = $MINLENEMPTYORF / 3;        # Minimum length in AA for ORF empty orfs (non corresponding orfs)
 
     # This function takes the empty array of ORF and annotate it as ORFs
     # It means ORF having non corresponding gene in a pepfile
@@ -7205,7 +7207,7 @@ sub FindLowConservedGenesAndEndoByHMM {
         # For endonuclease
         my $ResDirForEndo  = "$directories/hmmRes_endo";
         mkdir($ResDirForEndo) if !(-d $ResDirForEndo);
-        $Endo_by_cg = &FindEndo($cg,$ResDirForEndo,$OrfFile,$directories);
+        &FindEndo($cg,$ResDirForEndo,$OrfFile,$directories,$Endo_by_cg);
     }
     return $Endo_by_cg;
 }
@@ -7242,13 +7244,13 @@ sub FindLowConservedGenes {
 }
 
 sub FindEndo {
-    my ($cg,$ResDir,$OrfFile,$directories) = @_;
+    my ($cg,$ResDir,$OrfFile,$directories,$Endo_by_cg) = @_;
 
     return {} if ($LIGHT);
 
     my $endo = $ENDO_HASH;
     &RunHMMSearchForLowConservedGenes($endo,$OrfFile,$ResDir);
-    my $Endo_by_cg = &CreateAllEndoAnnotFindByHMM($directories,$ResDir,$cg->name());
+    $Endo_by_cg = &CreateAllEndoAnnotFindByHMM($directories,$ResDir,$cg->name(),$Endo_by_cg);
 
     # Select the best endonuclease for each contig
     my $best_endo_by_cg = {};
@@ -7366,7 +7368,8 @@ sub GetORFForLowConservedGenes {
     my $file_out = "$subdir/$name.orf";
     my $cwd = getcwd();
     chdir("$TMPDIR");
-    my $cmd = "$GETORFPATH $file_name -table $GENCODE -outseq $file_out";
+
+    my $cmd = "$GETORFPATH $file_name -table $GENCODE -outseq $file_out -minsize $MINLENENDO";
     print "$cmd\n" if $DEBUG;
     my $resultat = system("$cmd >/dev/null 2>/dev/null");
     my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
@@ -8317,11 +8320,9 @@ sub DefineCloseStart {
 
 #---- CreateAllEndoAnnotFindByHMM ----#
 sub CreateAllEndoAnnotFindByHMM {
-    my ($HighDir,$ResDir,$contigname) = @_;
+    my ($HighDir,$ResDir,$contigname,$Endo_by_cg) = @_;
 
-    my $contig     = $pirmaster->GetContigByName($contigname);
-
-    my $Endo_by_cg = {};
+    my $contig                 = $pirmaster->GetContigByName($contigname);
     $Endo_by_cg->{$contigname} = &CreateAllHMMAnnot($ResDir,$contigname,$contig,1);
     return $Endo_by_cg;
 }
