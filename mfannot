@@ -430,7 +430,7 @@ my $numbercontigs = scalar (@$contigs);        # Number of contigs in the master
 die "No contig header found in the masterfile '$MASTERFILE'\n" if $numbercontigs == 0;
 my $numberannot   = 0;                         # Number of annotations detected in the program
 
-my $CONTIG = {};
+my $CONTIGS = {};
 &CleanPirmaster() if ($LVL_MOT != 1);
 my $NB_PROC   = &DefineNumberOfProcessor();
 
@@ -889,13 +889,13 @@ sub CleanPirmaster {
          $isUnique->{$header}++;
          die "Two contigs have same header '$header'\n" if $isUnique->{$header} > 1;
          $count++;
-         $CONTIG->{"contig$count"} = "$header";
+         $CONTIGS->{"contig$count"} = "$header";
          $contig->set_namecomments("");
          $contig->set_name("contig$count");
          my $seq = $contig->get_sequence();
             $seq =~ s/\!//g;
             $seq = $seq;
-         $contig->set_sequence($seq);
+         $contig->set_sequence(uc($seq));
          foreach my $AP (@$annotations) {
              my $type      = $AP->get_type();
              my $startline = $AP->get_startline() || "";
@@ -992,25 +992,22 @@ sub RunFlip {
     unlink("compl")    if (-e "compl");
     unlink("uncompl")  if (-e "uncompl");
 
-    # Checking the see if the masterfile path is aboslute or relative
-    my $tmpMasterfile = "$TMPDIR/Masterfile_copy";
+    # Create a local copy wit all the contig
+    my $input_contigs = "$TMPDIR/contigs.fna";
+    my $ofh = new IO::File ">$input_contigs"
+        or die "Cannot write to temp file '$input_contigs': $!\n";  # in TMPDIR
 
-    # Need to remove CR from masterfile, so let's make a local copy
-    print "Making local copy of masterfile with no CRs.\n" if $DEBUG;
-    my $ifh = new IO::File "<$tmpMasterfile"
-        or die "Cannot read from masterfile '$tmpMasterfile': $!\n";
-    my $ofh = new IO::File ">mf_noCr.all"
-        or die "Cannot write to temp file 'mf_noCr.all': $!\n";  # in TMPDIR
-    while (my $line = <$ifh>) {
-        $line =~ s/\s+$/\n/;
-        print $ofh $line;
+    my $contigs   = $pirmaster->get_contigs();
+    foreach my $contig (@$contigs) {
+        my $contigname = $contig->get_name();
+        my $seq        = $contig->get_sequence();
+        print $ofh ">$contigname\n$seq\n\n";
     }
     $ofh->close();
-    $ifh->close();
 
     my $to_add  = $DEVIATION ne "" ?  "-d '$DEVIATION'" : "";
-    my $cmdflip = "$FLIPPATH $to_add -m -l $MINLENGTHORF -g $GENCODE mf_noCr.all > $TMPDIR/flip.output";
     # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
+    my $cmdflip = "$FLIPPATH $to_add -m -l $MINLENGTHORF -g $GENCODE $input_contigs > $TMPDIR/flip.output";
 
     system("$cmdflip >/dev/null 2>/dev/null");
     print "$cmdflip\n" if $DEBUG;
@@ -2647,28 +2644,28 @@ sub FindExonsInHypProtArray {
         my $overlappe_authorized = ((5*$length)/100);
 
         # Write protein and gene in fasta files
-        my $fileprot      = "$TMPDIR/Exonerate/prot_for_exonerate_${i}_${name}";
-        my $filecontig    = "$TMPDIR/Exonerate/gene_for_exonerate_${contigname}";
+        my $input_prot    = "$TMPDIR/Exonerate/prot_for_exonerate_${i}_${name}";
+        my $input_contig  = "$TMPDIR/Contigs/${contigname}.fna";
         my $exonerate_out = "$TMPDIR/Exonerate/exonerate_${i}_${name}";
 
         # Check if it exists
-        unlink($fileprot)      or die "Impossible to delete $fileprot\n"      if (-f $fileprot);
+        unlink($input_prot)    or die "Impossible to delete $input_prot\n"    if (-f $input_prot);
         unlink($exonerate_out) or die "Impossible to delete $exonerate_out\n" if (-f $exonerate_out);
 
         # Create protein for exonerate
-        my $FILEPROT = new IO::File ">$fileprot" or die "Impossible to open $fileprot\n";
+        my $FILEPROT = new IO::File ">$input_prot" or die "Impossible to open $input_prot\n";
         print $FILEPROT $protein, "\n";
-        $FILEPROT->close() or die "Impossible to close $fileprot\n";
+        $FILEPROT->close() or die "Impossible to close $input_prot\n";
 
         # Create genome for exonerate
-        if (! -f $filecontig) {
-            my $FH = new IO::File ">$filecontig" or die "Impossible to open $filecontig\n";
+        if (! -f $input_contig) {
+            my $FH = new IO::File ">$input_contig" or die "Impossible to open $input_contig\n";
             print $FH $seq, "\n";
-            $FH->close() or die "Impossible to close $filecontig\n";
+            $FH->close() or die "Impossible to close $input_contig\n";
         }
 
         my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --maxintron $MAXLENINTRONS --intronpenalty -35 --splice3 $MODEL_PATH/Splice/neutral.pssm --splice5 $MODEL_PATH/Splice/neutral.pssm --geneticcode $GENCODE";
-        my $cmd = "$EXONERATEPATH $Exonerate_parameter $fileprot '$filecontig' > $exonerate_out"; # $Exonerate_parameter $fileprot $filecontig
+        my $cmd = "$EXONERATEPATH $Exonerate_parameter $input_prot $input_contig > $exonerate_out"; # $Exonerate_parameter $input_prot $input_contig
         print "\n$cmd\n" if $DEBUG;
 
         my $resultat = system("$cmd");
@@ -2856,7 +2853,7 @@ sub FindExonsInHypProtArray {
                 next if !$start || !$end;
                 if (($start < $gene_start ) || ($end > $gene_end)) {
                     my $file_with_alt = &Create_alternative_prot($dna_seq,\@exon_start_end,$i,$name);
-                    my $delete_or_not = &Choose_best_solution($file_with_alt,$fileprot,$i,$name);
+                    my $delete_or_not = &Choose_best_solution($file_with_alt,$input_prot,$i,$name);
                        $isTranspliced = ( !$delete_or_not ? 1 : 0);
                     splice(@exon_start_end, $i, 1) if !$isTranspliced;
                     if ($isTranspliced) {
@@ -3162,15 +3159,15 @@ sub Create_alternative_prot {
        $prot_without_exons .= &TranslateInProt($without_exons);
     my $proteins            = "$prot_with_exons\n$prot_without_exons";
 
-    my $fileprot = "$TMPDIR/Exonerate/for_blast_${name}_e$i";
+    my $input_prot = "$TMPDIR/Exonerate/for_blast_${name}_e$i";
 
-    unlink($fileprot) or die "Impossible to delete $fileprot\n" if (-f $fileprot);
+    unlink($input_prot) or die "Impossible to delete $input_prot\n" if (-f $input_prot);
     # Create protein for exonerate
-    my $FILEPROT = new IO::File ">$fileprot" or die "Impossible to open $fileprot\n";
+    my $FILEPROT = new IO::File ">$input_prot" or die "Impossible to open $input_prot\n";
     print $FILEPROT $proteins, "\n";
-    $FILEPROT->close() or die "Impossible to close $fileprot\n";
+    $FILEPROT->close() or die "Impossible to close $input_prot\n";
 
-    return $fileprot;
+    return $input_prot;
 }
 
 sub Choose_best_solution {
@@ -5423,7 +5420,7 @@ sub Annotate_Using_external_programs {
     # we parse here.
 
     # Create one file per contig
-    my $work_dir = "$TMPDIR/Contig_ext";
+    my $work_dir = "$TMPDIR/Contigs";
     &CreateContigFile if (!(-d $work_dir));
 
     # Default: all of them
@@ -5484,26 +5481,24 @@ sub Annotate_Using_external_programs {
 } # End sub
 
 sub CreateContigFile {
-    mkdir("$TMPDIR/Contig_ext",0700);
+    mkdir("$TMPDIR/Contigs",0700);
     my $contigs = $pirmaster->get_contigs();
+
     foreach my $contig (@$contigs) {
         my $seq       = uc($contig->get_sequence());
            $seq       =~ s/!//g;
         my $name      = $contig->get_name();
 
-        my $contig_file = "$TMPDIR/Contig_ext/$name";
+        my $contig_file = "$TMPDIR/Contigs/$name.fna";
         my $CF = new IO::File ">$contig_file" or die "Cannot open : $contig_file\n";
         print $CF ">$name\n$seq\n";
         $CF->close();
     }
+
 }
 
 sub ExecuteExternalProgram {
-    my $commandobject             = shift;
-    my $genename                  = shift;
-    my $alternate_masterfile      = shift;
-    my $alternate_plainmasterfile = shift;
-    my $alternate_outfile         = shift;
+    my ($commandobject,$genename,$alternate_masterfile,$alternate_plainmasterfile,$alternate_outfile) = @_;
 
     my $outfile_gene = $alternate_outfile || "$TMPDIR/result_for_$genename.xml";
 
@@ -7207,7 +7202,7 @@ sub FindLowConservedGenesAndEndoByHMM {
 
     my $Endo_by_cg = {};
     foreach my $cg (@$contigs) {
-        my $OrfFile = &GetORFForLowConservedGenes($cg->get_sequence(),$cg->get_name());
+        my $OrfFile = &GetORFForLowConservedGenes($cg->get_name());
         my ($volume,$directories,$file_name) = File::Spec->splitpath($OrfFile);
 
         # For gene
@@ -7364,24 +7359,25 @@ sub DefinedMissingGene {
 
 #---- GetORFForLowConservedGenes ----#
 sub GetORFForLowConservedGenes {
-    my ($seq,$name) = @_;
+    my ($name) = @_;
 
     my $dir = "$TMPDIR/contig";
+
     mkdir($dir) if !(-d $dir);
     my $subdir = "$dir/$name";
-    mkdir($subdir) if !(-d $subdir);
-    my $file_name = "$subdir/$name.faa";
-    my $fasta_fh  = new IO::File ">$file_name"
-        or die "Cannot open $file_name in GetORFForLowConservedGenes\n";
-    print $fasta_fh ">$name\n$seq\n";
-    $fasta_fh->close();
 
-    my $file_out = "$subdir/$name.orf";
+    mkdir($subdir) if !(-d $subdir);
+
+    # Define file_name
+    my $input_path  = "$TMPDIR/Contigs/$name.fna";
+    my $output_path = "$subdir/$name.orf";
+
     my $cwd = getcwd();
     chdir("$TMPDIR");
 
-    my $cmd = "$GETORFPATH $file_name -table $GENCODE -outseq $file_out -minsize $MINLENENDO";
+    my $cmd = "$GETORFPATH $input_path -table $GENCODE -outseq $output_path -minsize $MINLENENDO";
     print "$cmd\n" if $DEBUG;
+
     my $resultat = system("$cmd >/dev/null 2>/dev/null");
     my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
     my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
@@ -7390,7 +7386,8 @@ sub GetORFForLowConservedGenes {
         print "Error in execution of HMMsearch in RunHMMSearchForLowConservedGenes subroutine\n";
     }
     chdir("$cwd");
-    return $file_out;
+
+    return $output_path;
 }
 
 #---- RunHMMSearchForLowConservedGenes ----#
@@ -8383,6 +8380,9 @@ sub LcIntrons {
            $seq =~ s/!//g;
         my $annotations = $contig->get_annotations();
 
+        # First time UC everything
+        &UCSeqInContig(1,length($seq),$contig);
+
         foreach my $annot (@$annotations) {
             my $type = $annot->get_type();
             next if $type ne "I" && $type ne "O";
@@ -8432,7 +8432,7 @@ sub ReplaceCgName {
 
     foreach my $contig (@$contigs) {
         my $name   = $contig->get_name();
-        my $header = $CONTIG->{"$name"};
+        my $header = $CONTIGS->{"$name"};
            $header = "$header gc=$GENCODE" if $header !~ m/gc=/;
         $contig->set_name($header);
     }
