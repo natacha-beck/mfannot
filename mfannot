@@ -3616,7 +3616,17 @@ sub AnnotateMiniExonsByHMM {
             # Create HMM model
             my ($More_p,$More_n)  = (2,2);
             my ($ProtHMM,$lenHMM) = &CreateFileForHMMBuild($Align,$Introns,$i,$NbChange,$ShortName,$LenAli,$LenAdj_p,$LenAdj_n,$Dash_p,$Dash_n,$More_p,$More_n,$hypprot->get_trimIndexFive());
-            my ($ListHypExons)    = &FindHypMiniExon($UseSeq,$Intron,$SubPercent,$isMinus,$apl,$Exon_p,$Exon_n,$ProtHMM,$Seq_p,$Seq_n,$More_p,$More_n,$lenHMM,$NbIntron);
+            my ($AllHypExons)     = &FindHypMiniExon($UseSeq,$Intron,$SubPercent,$isMinus,$apl,$Exon_p,$Exon_n,$ProtHMM,$Seq_p,$Seq_n,$More_p,$More_n,$lenHMM,$NbIntron);
+
+            # Iterate over $AllHyExons and remove all exon that have a stop
+            my $ListHypExons = [];
+            foreach my $hypExon (@$AllHypExons) {
+                my $hypExonSeq = $hypExon->{"seq"};
+                print "$hypExonSeq\n" if $hypExonSeq =~ m/\*/;
+                next if $hypExonSeq =~ m/\*/;
+                push(@$ListHypExons,$hypExon);
+            }
+
             # If no Hyp exons was return
             if (scalar(@$ListHypExons) == 0) {
               &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"reconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
