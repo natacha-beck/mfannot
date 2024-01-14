@@ -3618,11 +3618,10 @@ sub AnnotateMiniExonsByHMM {
             my ($ProtHMM,$lenHMM) = &CreateFileForHMMBuild($Align,$Introns,$i,$NbChange,$ShortName,$LenAli,$LenAdj_p,$LenAdj_n,$Dash_p,$Dash_n,$More_p,$More_n,$hypprot->get_trimIndexFive());
             my ($AllHypExons)     = &FindHypMiniExon($UseSeq,$Intron,$SubPercent,$isMinus,$apl,$Exon_p,$Exon_n,$ProtHMM,$Seq_p,$Seq_n,$More_p,$More_n,$lenHMM,$NbIntron);
 
-            # Iterate over $AllHyExons and remove all exon that have a stop
+            # Iterate over $AllHypExons and remove all exon that have a stop
             my $ListHypExons = [];
             foreach my $hypExon (@$AllHypExons) {
                 my $hypExonSeq = $hypExon->{"seq"};
-                print "$hypExonSeq\n" if $hypExonSeq =~ m/\*/;
                 next if $hypExonSeq =~ m/\*/;
                 push(@$ListHypExons,$hypExon);
             }
@@ -3785,8 +3784,8 @@ sub RunHMMSearchForMiniEx {
         my $seq = "${prev_seq}${exon_seq}${next_seq}";
         if ($seq !~ m/\*/) {
             print $fasta_fh ">Sol_$i\n$seq\n";
-            $i++;
         }
+        $i++;
     }
     $fasta_fh->close();
 
@@ -3944,6 +3943,8 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
 
 sub DefAdjIntronByHMM {
     my ($Sub_PP,$Sub_Ali,$IntronPosSub) = @_;
+    # Special case if an Exon have a stop codon
+    my ($LenAdj_p,$Dash_p) = (0,0);
 
     # Treat prev Exon
     my $HMM_p    = substr($Sub_PP,0,$IntronPosSub);
@@ -3953,16 +3954,13 @@ sub DefAdjIntronByHMM {
     my @AA_prev  = split(//,$AA_p);
        @AA_prev  = reverse(@AA_prev);
 
-    my ($LenAdj_p,$Dash_p) = (0,0);
-    my $id_HMM = 0;
-    for (my $i = 0 ; $i < scalar(@HMM_prev) ; $i++) {
-        my $PP = $HMM_prev[$i];
-        last if $PP eq "*";
-        $PP = 0 if $PP eq ".";
-        $id_HMM += $PP;
-        $LenAdj_p++;
-        my $AA = $AA_prev[$i];
-        $Dash_p++ if $AA eq "-" || $AA eq ".";
+    # Treat prev Exon at level of Sub_ALi in order to look for stop codon
+    my $Sub_Ali_p    = substr($Sub_Ali,0,$IntronPosSub);
+    my $p_stop_index = index($Sub_Ali_p,"X");
+    if ($p_stop_index != -1) {
+        $LenAdj_p        = length($Sub_Ali_p) - $p_stop_index + 1;
+        $Dash_p          = $AA_p =~ tr/-//;
+        $Dash_p         += $AA_p =~ tr/\.//;
     }
 
     # Treat next Exon
@@ -3972,18 +3970,44 @@ sub DefAdjIntronByHMM {
     my @AA_next  = split(//,$AA_n);
 
     my ($LenAdj_n,$Dash_n) = (0,0);
+    # Treat next Exon at level of Sub_ALi in order to look for stop codon
+    my $Sub_Ali_n    = substr($Sub_Ali,$IntronPosSub);
+    my $n_stop_index = index($Sub_Ali_n,"X");
+    if ($n_stop_index != -1) {
+        $LenAdj_n        = $n_stop_index + 1;
+        $Dash_n          = $AA_n =~ tr/-//;
+        $Dash_n         += $AA_n =~ tr/\.//;
+    }
+
+    my $id_HMM = 0;
+    for (my $i = 0 ; $i < scalar(@HMM_prev) ; $i++) {
+        my $PP = $HMM_prev[$i];
+        last if $PP eq "*";
+        $PP = 0 if $PP eq ".";
+        $id_HMM += $PP;
+
+        if ($p_stop_index == -1) {
+            $LenAdj_p++ ;
+            my $AA = $AA_prev[$i];
+            $Dash_p++ if $AA eq "-" || $AA eq ".";
+        }
+    }
+
     for (my $i = 0 ; $i < scalar(@HMM_next) ; $i++) {
         my $PP = $HMM_next[$i];
         last if $PP eq "*";
         $PP = 0 if $PP eq ".";
         $id_HMM += $PP;
-        $LenAdj_n++;
-        my $AA = $AA_next[$i];
-        $Dash_n++ if $AA eq "-" || $AA eq ".";
+        if ($n_stop_index == -1) {
+            $LenAdj_n++;
+            my $AA = $AA_next[$i];
+            $Dash_n++ if $AA eq "-" || $AA eq ".";
+        }
     }
 
     $id_HMM = $id_HMM / ($LenAdj_p+$LenAdj_n) if ($LenAdj_p+$LenAdj_n) != 0;
     $id_HMM = $id_HMM || 10;
+
     return ($LenAdj_p,$Dash_p,$LenAdj_n,$Dash_n,$id_HMM);
 }
 
