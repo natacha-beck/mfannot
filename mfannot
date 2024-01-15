@@ -5595,8 +5595,8 @@ sub ReconstructFullRNA {
             next if $idbyHMM == 1 && &CompareHighPrecisionFloats($annot->get_score(), $HMMVALUECUTOFF) == 1; # score > $HMMVALUECUTOFF
             my $type       = $annot->get_type()     || "G";
             my $a_genename = $annot->get_genename() || $genename;
-            my $startpos   = $annot->get_startpos()
-               || die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
+            my $startpos   = defined($annot->get_startpos()) ? $annot->get_startpos() :
+                                                               die "Can't find startpos() from annotpair obtained from external analysis?!? Object=\n" . $annot->ObjectToXML() . "\n";
             my $endpos     = $annot->get_endpos(); # Can be undef
 
             my $isMinus    = 1  if defined($endpos) && $startpos > $endpos;
