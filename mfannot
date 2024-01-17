@@ -2307,7 +2307,7 @@ sub DefEachStartInHMM {
 
         my $full_without_stop = $full;
            $full_without_stop =~ s/\*/X/g;
-        my $trim_index_five = index(uc($full_without_stop),uc($raw_seq));
+        my $trim_index_five   = index(uc($full_without_stop),uc($raw_seq));
 
         my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
         my $len_dash   = length($dash_chain);
@@ -2317,9 +2317,8 @@ sub DefEachStartInHMM {
         $each_trim5->{$id} = $trim_index_five;
 
         if ($id eq "myProt") {
+            my $trim_index_three = length($full_without_stop) - length($raw_seq) - $trim_index_five;
             $hypprot->set_trimIndexFive($trim_index_five);
-            my $ending_dash = $1 if $seq =~ m/(-+)$/;
-            my $trim_index_three  = length($ending_dash);
             $hypprot->set_trimIndexThree($trim_index_three);
         }
     }
@@ -2370,9 +2369,8 @@ sub OldDefEachStartInHMM {
         $each_start->{$id}  = $len_dash + $trim_index_five;
 
         if ($id eq "myProt") {
+            my $trim_index_three = length($full_without_stop) - length($raw_seq) - $trim_index_five;
             $hypprot->set_trimIndexFive($trim_index_five);
-            my $ending_dash = $1 if $seq =~ m/(-+)$/;
-            my $trim_index_three  = length($ending_dash);
             $hypprot->set_trimIndexThree($trim_index_three);
         }
     }
@@ -3565,7 +3563,8 @@ sub AnnotateMiniExonsByHMM {
             my $isMinus   = $Intron->get_strand() eq "+" ? 0 : 1;
             my $UseSeq    = $isMinus ? "$ReverseSeq" : "$Seq";
             my $LenSeq    = length($Seq);
-            my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos,$hypprot->get_trimIndexFive());
+            my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos,$hypprot->get_trimIndexFive(),$hypprot->get_trimIndexThree());
+            next if !$IntronPosAli;
             my $Exon_p = @$Exons[$i]   || next;
             my $Exon_n = @$Exons[$i+1] || next;
 
@@ -3924,7 +3923,7 @@ sub GetProteinSequenceAndIntronsPos {
 sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
     # In order to define the sequence of the hyppothetical protein
     # and to define the position of intron on the alignment.
-    my ($align,$intron_pos_hypprot,$trim_index) = @_;
+    my ($align,$intron_pos_hypprot,$trim_index_five,$trim_index_three) = @_;
 
     my $hypprot_seq        = undef;
     my $pos_in_alignment   = undef;
@@ -3933,8 +3932,17 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
         my $id = $seq->display_id();
         next if $id ne "myProt";
         $hypprot_seq      = $seq;
-        $pos_in_alignment = $align->column_from_residue_number( $id, $intron_pos_hypprot - $trim_index);
-        $length_ali       = length($seq->seq());
+        # Special case if the intron is at the end of the sequence and outside of the alignment
+        my $last_possible_intron_pos = length($seq->seq()) - $trim_index_three;
+        my $raw_seq = $seq->seq();
+        $raw_seq    =~ s/[-\.]//g;
+
+        if (length($raw_seq) < $intron_pos_hypprot) {
+            $pos_in_alignment   = undef;
+        } else {
+            $pos_in_alignment   = $align->column_from_residue_number( $id, $intron_pos_hypprot - $trim_index_five);
+        }
+        $length_ali             = length($seq->seq());
         last;
     }
 
