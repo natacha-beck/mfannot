@@ -2326,58 +2326,6 @@ sub DefEachStartInHMM {
     return ($each_start,$each_trim5,$each_dash5);
 }
 
-
-
-sub OldDefEachStartInHMM {
-    my ($align,$hypprot) = @_;
-
-    my $each_start = {};
-    my $multalign     = $align->[0];
-    my $alignedSeqs   = $multalign->get_alignedSeqs();
-
-    # Create a hash with each protein used in HMM
-    my $full_sequences = {};
-    my $homologous     = $hypprot->get_homologous();
-    foreach my $homo (@$homologous) {
-        my $shortname = $homo->get_shortname();
-        my $protein   = $homo->get_similarprot();
-
-        $protein =~ s/>.+\n//;
-        $full_sequences->{$shortname} = $protein;
-    }
-
-    # The Hash with each protein will be used to correct the start position in
-    # each alignment it should be done due the the usage of --trim option for HMM
-    foreach my $alignedSeq (@$alignedSeqs) {
-        my $id    = $alignedSeq->get_seqId();
-        my $full  = $full_sequences->{$id} || $hypprot->get_thisprot();
-
-        my $seq        = $alignedSeq->get_sequence();
-        my $dash_seq   = $seq;
-           $dash_seq   =~ s/\./\-/g;
-        my $raw_seq    = $dash_seq;
-           $raw_seq    =~ s/\-//g;
-
-
-        my $full_without_stop = $full;
-           $full_without_stop =~ s/\*/X/g;
-        my $trim_index_five = index(uc($full_without_stop),uc($raw_seq));
-        print "$id: Trim index five $trim_index_five\n";
-
-        my $dash_chain = $1 if $dash_seq =~ m/^(-*)/;
-        my $len_dash   = length($dash_chain);
-        $each_start->{$id}  = $len_dash + $trim_index_five;
-
-        if ($id eq "myProt") {
-            my $trim_index_three = length($full_without_stop) - length($raw_seq) - $trim_index_five;
-            $hypprot->set_trimIndexFive($trim_index_five);
-            $hypprot->set_trimIndexThree($trim_index_three);
-        }
-    }
-
-    return $each_start;
-}
-
 # Get the protein sequence for a gene with lower case for
 # possible start codons.
 sub GetProteinForGeneWithoutIntrons {
@@ -3614,7 +3562,7 @@ sub AnnotateMiniExonsByHMM {
 
             # Create HMM model
             my ($More_p,$More_n)  = (2,2);
-            my ($ProtHMM,$lenHMM) = &CreateFileForHMMBuild($Align,$Introns,$i,$NbChange,$ShortName,$LenAli,$LenAdj_p,$LenAdj_n,$Dash_p,$Dash_n,$More_p,$More_n,$hypprot->get_trimIndexFive());
+            my ($ProtHMM,$lenHMM) = &CreateFileForHMMBuild($Align,$Introns,$i,$NbChange,$ShortName,$LenAli,$LenAdj_p,$LenAdj_n,$Dash_p,$Dash_n,$More_p,$More_n,$hypprot->get_trimIndexFive(),$hypprot->get_trimIndexThree());
             my ($AllHypExons)     = &FindHypMiniExon($UseSeq,$Intron,$SubPercent,$isMinus,$apl,$Exon_p,$Exon_n,$ProtHMM,$Seq_p,$Seq_n,$More_p,$More_n,$lenHMM,$NbIntron);
 
             # Iterate over $AllHypExons and remove all exon that have a stop
@@ -3701,7 +3649,7 @@ sub CreateAlignForMiniEx {
 }
 
 sub CreateFileForHMMBuild {
-    my ($Align,$Introns,$i,$NbChange,$ShortName,$LenAli,$LenAdj_p,$LenAdj_n,$Dash_p,$Dash_n,$More_p,$More_n,$TrimIndexFive) = @_;
+    my ($Align,$Introns,$i,$NbChange,$ShortName,$LenAli,$LenAdj_p,$LenAdj_n,$Dash_p,$Dash_n,$More_p,$More_n,$TrimIndexFive,$TrimIndexThree) = @_;
 
     my $Intron    = $Introns->[$i];
     my $IntronPos = $Intron->get_intronpos() - $TrimIndexFive;
@@ -3937,7 +3885,7 @@ sub DefineSeqOfHypprotAndPosOfIntronInAlignment {
         my $raw_seq = $seq->seq();
         $raw_seq    =~ s/[-\.]//g;
 
-        if (length($raw_seq) < $intron_pos_hypprot) {
+        if (length($raw_seq) - $trim_index_five - $trim_index_three < $intron_pos_hypprot) {
             $pos_in_alignment   = undef;
         } else {
             $pos_in_alignment   = $align->column_from_residue_number( $id, $intron_pos_hypprot - $trim_index_five);
