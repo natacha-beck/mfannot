@@ -3731,8 +3731,8 @@ sub RunHMMSearchForMiniEx {
         my $seq = "${prev_seq}${exon_seq}${next_seq}";
         if ($seq !~ m/\*/) {
             print $fasta_fh ">Sol_$i\n$seq\n";
+            $i++;
         }
-        $i++;
     }
     $fasta_fh->close();
 
