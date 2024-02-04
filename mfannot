@@ -3662,7 +3662,7 @@ sub CreateFileForHMMBuild {
         $Pos_p = $Align->column_from_residue_number( $id, $Pos_p) + $Dash_p - $More_p;
         $Pos_n = $Align->column_from_residue_number( $id, $Pos_n) - $Dash_n + $More_n;
     }
-    my $SubAlign = $Align->slice($Pos_p,$Pos_n);
+    my $SubAlign = $Pos_p < $Pos_n ? $Align->slice($Pos_p,$Pos_n) : $Align->slice($Pos_n,$Pos_p);
 
     my $FileName   = "$TMPDIR/HMM_For_Exo/$ShortName/i${i}_$NbChange.fas";
     my $SubAliFile = new IO::File ">$FileName" or die "Impossible to open $FileName\n";
