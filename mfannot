@@ -8992,8 +8992,8 @@ sub RenumberFeatures {
                 my $type      = $annot->get_type();
                 my $start     = $annot->get_startpos();
                 my $end       = $annot->get_endpos();
-                print "Warning: gene '$genename' ($start..$end) was renamed with suffix $newsuf to make it distinct.\n"
-                    if ($type eq "G" || $type eq "O") && $origname eq $genename && $genename ne "comment"; # no warn if "cox1_1-I1-orf344"
+                #print "Warning: gene '$genename' ($start..$end) was renamed with suffix $newsuf to make it distinct.\n"
+                #    if ($type eq "G" || $type eq "O") && $origname eq $genename && $genename ne "comment"; # no warn if "cox1_1-I1-orf344"
                 $startline = &ReplaceNumber($startline,$newsuf,$genename,$annot);
                 $endline   = &ReplaceNumber($endline,$newsuf,$genename,$annot) if $endline;
                 $annot->set_startline($startline);
