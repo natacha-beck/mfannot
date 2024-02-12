@@ -2039,7 +2039,7 @@ sub ExtractLibSeqs {
 
     my $this_fasta = ">myProt\n";
     while ($this_prot ne "") {
-            $this_prot   =~ s/\*/X/;
+            $this_prot   =~ s/\*/X/g;
             $this_prot   =~ s/[^a-zA-Z]//g;
             $this_prot   = uc($this_prot);
             my $slice    = length($this_prot) > 60 ? 60 : length($this_prot);
@@ -3740,7 +3740,7 @@ sub RunHMMSearchForMiniEx {
     return [] if $i == 0;
 
     my $FileRes = "${ShortName}_z$z.res";
-    my $cmd = "nice -19 $HMMSEARCHPATH -o $FileRes $prothmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH --F3 1e-1 -Z 1 -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -4061,9 +4061,7 @@ sub CompareEachPosOfHypprotWithHomologous {
 sub DefineAdjustIntron {
     # Define portion of non homologous region taking into account
     # of the accepeted separation between 2 disimilarity
-    my $conserved_seq  = shift;
-    my $intron_pos     = shift;
-    my $percent_id     = shift;
+    my ($conserved_seq,$intron_pos,$percent_id) = @_;
 
     my $string = join('', @$conserved_seq);
     # String is : -------------FLML----------
@@ -4734,7 +4732,7 @@ sub RunHMMForeachSplice {
 sub RunHMMSearchForSplice {
     my ($FileRes,$hmm,$FastaName) = @_;
 
-    my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -o $FileRes $hmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH --F3 1e-1 -Z 1 --noali -o $FileRes $hmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -7436,7 +7434,7 @@ sub RunHMMSearchForLowConservedGenes {
       my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
 
       my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
-      my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 --domE 0.0001 -o $FileRes $hmmFile $OrfFile";
+      my $cmd = "nice -19 $HMMSEARCHPATH --F3 1e-1 -Z 1 --noali --domE 0.0001 -o $FileRes $hmmFile $OrfFile";
       print "$cmd\n" if $DEBUG;
 
       my $resultat = system("$cmd >/dev/null 2>/dev/null");
