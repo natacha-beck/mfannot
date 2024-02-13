@@ -3740,7 +3740,7 @@ sub RunHMMSearchForMiniEx {
     return [] if $i == 0;
 
     my $FileRes = "${ShortName}_z$z.res";
-    my $cmd = "nice -19 $HMMSEARCHPATH --F3 1e-1 -Z 1 -o $FileRes $prothmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -4732,7 +4732,7 @@ sub RunHMMForeachSplice {
 sub RunHMMSearchForSplice {
     my ($FileRes,$hmm,$FastaName) = @_;
 
-    my $cmd = "nice -19 $HMMSEARCHPATH --F3 1e-1 -Z 1 --noali -o $FileRes $hmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -o $FileRes $hmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -7434,7 +7434,7 @@ sub RunHMMSearchForLowConservedGenes {
       my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
 
       my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
-      my $cmd = "nice -19 $HMMSEARCHPATH --F3 1e-1 -Z 1 --noali --domE 0.0001 -o $FileRes $hmmFile $OrfFile";
+      my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 --domE 0.0001 -o $FileRes $hmmFile $OrfFile";
       print "$cmd\n" if $DEBUG;
 
       my $resultat = system("$cmd >/dev/null 2>/dev/null");
