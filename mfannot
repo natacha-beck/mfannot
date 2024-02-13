@@ -3183,32 +3183,26 @@ sub CheckRealIntrons {
         my $intron_type = $intron->get_type();
         next if $intron_type;
 
-        # Special case for last intron
-        if ($i == (scalar(@$introns) - 1)){
-            push(@$exons_to_rm,$i+1);
-            push(@$introns_to_rm,$i);
-        } else {
-            next if $intron_len % 3 != 0;
-            my $intron_seq   = &GetProteinForGeneWithoutIntrons($seq, $intron_start, $intron_end, $isMinus);
-            next if length($intron_seq) == 0;
-            next if $intron_seq =~ m/\*/;
+        next if $intron_len % 3 != 0;
+        my $intron_seq   = &GetProteinForGeneWithoutIntrons($seq, $intron_start, $intron_end, $isMinus);
+        next if length($intron_seq) == 0;
+        next if $intron_seq =~ m/\*/;
 
-            # Add comment for insertion
-            my $exoStart = $intron->get_exoStart();
-            my $exoEnd   = $intron->get_exoEnd();
-            my $max_ins_permitted = ( $exoStart && $exoEnd && $exoStart < $exoEnd  ?
-                                            $INSERTION + abs($exoStart - $exoEnd)
-                                          : $INSERTION );
-            my $intron_len_aa = $intron_len/3;
+        # Add comment for insertion
+        my $exoStart = $intron->get_exoStart();
+        my $exoEnd   = $intron->get_exoEnd();
+        my $max_ins_permitted = ( $exoStart && $exoEnd && $exoStart < $exoEnd  ?
+                                        $INSERTION + abs($exoStart - $exoEnd)
+                                        : $INSERTION );
+        my $intron_len_aa = $intron_len/3;
 
-            # Changed info for exon
-            my $number_frameshift = ($exon->get_frameshiftsize() || 0) + ($next_exon->get_frameshiftsize() || 0);
-            $exon->set_frameshiftsize($number_frameshift) if $number_frameshift != 0;
-            $exon->set_dnaend($next_exon->get_dnaend());
-            $exon->set_insertion($intron_len_aa) if $intron_len_aa >= $max_ins_permitted;
-            push(@$exons_to_rm,$i+1);
-            push(@$introns_to_rm,$i);
-        }
+        # Changed info for exon
+        my $number_frameshift = ($exon->get_frameshiftsize() || 0) + ($next_exon->get_frameshiftsize() || 0);
+        $exon->set_frameshiftsize($number_frameshift) if $number_frameshift != 0;
+        $exon->set_dnaend($next_exon->get_dnaend());
+        $exon->set_insertion($intron_len_aa) if $intron_len_aa >= $max_ins_permitted;
+        push(@$exons_to_rm,$i+1);
+        push(@$introns_to_rm,$i);
     }
 
     # Removed exon and intron if necessary
