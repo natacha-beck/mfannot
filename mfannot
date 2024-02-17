@@ -2849,6 +2849,8 @@ sub FindExonsInHypProtArray {
             }
 
             my $hypprotexonarray = $hypprot->exons;
+
+            my $msg = "";
             for (my $i = 0; $i < @exon_start_end; $i++){
                 # Fill information about exon
                 my ($dnastart, $dnaend, $strand, $FirstExoMatch, $attributes, $exoscore) = (
@@ -2878,6 +2880,7 @@ sub FindExonsInHypProtArray {
                 }
 
                 print "   Potential frameshift in $name\n" if $have_frameshift;
+                $msg = "Frame-Shift-Detected-Length-By-Exo" if $have_frameshift && $frameshift_size > 0;
                 my $hypprotexon = new PirObject::Exon (
                                                        dnastart        => $dnastart,
                                                        dnaend          => $dnaend,
@@ -2920,10 +2923,12 @@ sub FindExonsInHypProtArray {
                  &LocateIntrons($dna_seq,$intron,undef,$name,$contigname,$isMinus);
             }
 
-            &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
-            my $msg = &AdjustStartByHMMForBLASTandExonerate($hypprot, $dna_seq, $contigname);
+            if ($msg && $msg !~ m/By-Exo/) {
+                &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
+                $msg = &AdjustStartByHMMForBLASTandExonerate($hypprot, $dna_seq, $contigname);
+            }
 
-            if ($msg && $msg eq "Frame-Shift-Detected-Length") {
+            if ($msg && $msg =~ m/Frame-Shift-Detected-Length/) {
                 my $arrow = $strand == 1 ? "==>" : "<==";
 
                 my $exons = $hypprot->get_exons();
@@ -2937,7 +2942,7 @@ sub FindExonsInHypProtArray {
                         startline => ";; $name-E$idx $arrow start ;; mfannot: potential frameshift" ,
                         endline   => ";; $name-E$idx $arrow end"
                         );
-                    &AddAnnotToPirMaster($contigname,$exon);
+                    &AddAnnotToPirMaster($contigname,$exon) if $msg !~ m/By-Exo/;
                 }
 
                 my $hyp_prot = new PirObject::AnnotPair(
@@ -2949,7 +2954,7 @@ sub FindExonsInHypProtArray {
                                                  startline => ";; $name $arrow start ;; mfannot: potential frameshift",
                                                  endline   => ";; $name $arrow end",
                                                  );
-                &AddAnnotToPirMaster($contigname,$hyp_prot);
+                &AddAnnotToPirMaster($contigname,$hyp_prot) if $msg !~ m/By-Exo/;
                 pop @$HYPPROTS;
                 next;
             }
