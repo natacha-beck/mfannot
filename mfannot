@@ -380,6 +380,8 @@ die "Unable to read '$LIB_FILE'\n"
 my $MITO_GENE_TYP   = ["cox1","cox2","cox3","cob","atp6"];
 my $CHLORO_GENE_TYP = ["apcA","apcB","apcD","apcE","apcF","cpcG","petA","petB"];
 
+my $GENE_ID_WITH_FRAMESHIFT = {};
+
 # Debug print all env var
 if ($DEBUG) {
     # Print all environment variable
@@ -1771,7 +1773,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
     if ($protein_sequence eq "Frame-Shift-Detected") {
         $hypprot->set_startwarning("Aproximate start");
         &SearchForEndIfGeneHaveIntron($hypprot,$exons,$isMinus,$seq);
-        return "Frame-Shift-Detected";
+        return (1, ";; mfannot: possible frameshift detected");
     }
 
     # Define the full5 == 5'UTR + identified protein sequence
@@ -2848,9 +2850,10 @@ sub FindExonsInHypProtArray {
                 $hypprot->set_hypfusiongene($info_gene_fusion);
             }
 
-            my $hypprotexonarray = $hypprot->exons;
-
-            my $msg = "";
+            my $hypprotexonarray    = $hypprot->exons;
+            my $frameshift_comment  = "";
+            my $frameshift_detected = 0;
+            my $msg                 = "";
             for (my $i = 0; $i < @exon_start_end; $i++){
                 # Fill information about exon
                 my ($dnastart, $dnaend, $strand, $FirstExoMatch, $attributes, $exoscore) = (
@@ -2879,8 +2882,13 @@ sub FindExonsInHypProtArray {
                     }
                 }
 
-                print "   Potential frameshift in $name\n" if $have_frameshift;
-                $msg = "Frame-Shift-Detected-Length-By-Exo" if $have_frameshift && $frameshift_size > 0;
+                if ($have_frameshift) {
+                    $frameshift_detected = 1;
+                    # Add information about frameshift at the lvl of $msg but specify the exon and the frameshift size
+                    print "   Potential frameshift in $name\n";
+                    $frameshift_comment = ";; mfannot: potential frameshift of length $frameshift_size detected in exon $name-E".($i+1);
+                }
+
                 my $hypprotexon = new PirObject::Exon (
                                                        dnastart        => $dnastart,
                                                        dnaend          => $dnaend,
@@ -2923,12 +2931,10 @@ sub FindExonsInHypProtArray {
                  &LocateIntrons($dna_seq,$intron,undef,$name,$contigname,$isMinus);
             }
 
-            if ($msg && $msg !~ m/By-Exo/) {
-                &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
-                $msg = &AdjustStartByHMMForBLASTandExonerate($hypprot, $dna_seq, $contigname);
-            }
-
-            if ($msg && $msg =~ m/Frame-Shift-Detected-Length/) {
+            &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
+            ($msg,$frameshift_detected) = &AdjustStartByHMMForBLASTandExonerate($hypprot, $dna_seq, $contigname) if !$frameshift_detected;
+            if ($frameshift_detected) {
+                $GENE_ID_WITH_FRAMESHIFT->{$name} = 1;
                 my $arrow = $strand == 1 ? "==>" : "<==";
 
                 my $exons = $hypprot->get_exons();
@@ -2939,22 +2945,24 @@ sub FindExonsInHypProtArray {
                         genename  => $name,
                         startpos  => $exons->[$i]->get_dnastart(),
                         endpos    => $exons->[$i]->get_dnaend(),
-                        startline => ";; $name-E$idx $arrow start ;; mfannot: potential frameshift" ,
+                        startline => ";; $name-E$idx $arrow start",
                         endline   => ";; $name-E$idx $arrow end"
                         );
-                    &AddAnnotToPirMaster($contigname,$exon) if $msg !~ m/By-Exo/;
+                    &AddAnnotToPirMaster($contigname,$exon);
                 }
 
+                my $start_line = ";; $name $arrow start";
+                $start_line .= $frameshift_comment eq "" ? " ;; mfannot: potential frameshift" : $frameshift_comment;
                 my $hyp_prot = new PirObject::AnnotPair(
                                                  type      => "C",
                                                  genename  => $name,
                                                  startpos  => $start,
                                                  endpos    => $exons->[-1]->get_dnaend(),
                                                  direction => $arrow,
-                                                 startline => ";; $name $arrow start ;; mfannot: potential frameshift",
+                                                 startline => $start_line,
                                                  endline   => ";; $name $arrow end",
                                                  );
-                &AddAnnotToPirMaster($contigname,$hyp_prot) if $msg !~ m/By-Exo/;
+                &AddAnnotToPirMaster($contigname,$hyp_prot);
                 pop @$HYPPROTS;
                 next;
             }
@@ -7341,6 +7349,12 @@ sub DefinedMissingGene {
         my $gene_name = $gene->[0];
         delete($missing_gene_list->{$gene_name});
     }
+
+    # foreach key in $GENE_ID_WITH_FRAMESHIFT, delete the key in $missing_gene_list
+    foreach my $gene (keys %$GENE_ID_WITH_FRAMESHIFT) {
+        delete($missing_gene_list->{$gene});
+    }
+
     return $missing_gene_list;
 }
 
