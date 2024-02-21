@@ -2569,89 +2569,19 @@ sub FindExonsInHypProtArray {
     # The main is to find exons by making a local alignement
     mkdir("$TMPDIR/Exonerate",0700) or die "Error: can't create working directory '$TMPDIR/Exonerate': $!\n";
     mkdir("$TMPDIR/Intron",0700) or die "Error: can't create working directory '$TMPDIR/Intron': $!\n";
-    for (my $i=0; $i < @PROT_FOR_EXONERATE ; $i++) {
 
+    for (my $i=0; $i < @PROT_FOR_EXONERATE ; $i++) {
         my $info = $PROT_FOR_EXONERATE[$i]; # table with values for each prot
         my ($name, $contigname, $protein, $strand, $homologous, $namefusiongene, $origine, $ORF_start_end) = @$info;
 
-        # In order to have the contig sequence
-        my $contig  = $pirmaster->GetContigByName($contigname)
-            or die "Internal error: can't find contig named '$contigname'.\n";
-        my $dna_seq = $contig->get_sequence();
-           $dna_seq = uc($dna_seq);
-        my $seq     = ">sequence\n$dna_seq";
+        my ($protein_length,$dna_seq,$input_prot,$contig,$ExonerateReoprts) = &RunExonerate($i);
 
-        my $length = 0;
-        my @tab_prot = split(/\n/, $protein);  # check this, it may not work properly
-        for (my $i = 0 ; $i <= $#tab_prot ; $i++) {
-            my $line = uc $tab_prot[$i];
-            next if $line =~ /^>/;
-            $line =~ tr/A-Z//cd;
-            $length += length($line);
-        }
-        my $overlappe_authorized = ((5*$length)/100);
+        # Group Exonerate report
+        my $overlappe_authorized = ((5*$protein_length)/100);
+        my $grouped_reports      = &SortAndGroupC4Report($ExonerateReoprts,$overlappe_authorized,$info);
 
-        # Write protein and gene in fasta files
-        my $input_prot    = "$TMPDIR/Exonerate/prot_for_exonerate_${i}_${name}";
-        my $input_contig  = "$TMPDIR/Contigs/${contigname}.fna";
-        my $exonerate_out = "$TMPDIR/Exonerate/exonerate_${i}_${name}";
-
-        # Check if it exists
-        unlink($input_prot)    or die "Impossible to delete $input_prot\n"    if (-f $input_prot);
-        unlink($exonerate_out) or die "Impossible to delete $exonerate_out\n" if (-f $exonerate_out);
-
-        # Create protein for exonerate
-        my $FILEPROT = new IO::File ">$input_prot" or die "Impossible to open $input_prot\n";
-        print $FILEPROT $protein, "\n";
-        $FILEPROT->close() or die "Impossible to close $input_prot\n";
-
-        # Create genome for exonerate
-        if (! -f $input_contig) {
-            my $FH = new IO::File ">$input_contig" or die "Impossible to open $input_contig\n";
-            print $FH $seq, "\n";
-            $FH->close() or die "Impossible to close $input_contig\n";
-        }
-
-        my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --maxintron $MAXLENINTRONS --intronpenalty -35 --splice3 $MODEL_PATH/Splice/neutral.pssm --splice5 $MODEL_PATH/Splice/neutral.pssm --geneticcode $GENCODE";
-        my $cmd = "$EXONERATEPATH $Exonerate_parameter $input_prot $input_contig > $exonerate_out"; # $Exonerate_parameter $input_prot $input_contig
-        print "\n$cmd\n" if $DEBUG;
-
-        my $resultat = system("$cmd");
-
-        my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
-        my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
-        my $returncode  = $resultat >> 8;   # exit status of subprogram
-        if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
-            print "Error in execution of Exonerate \n";
-        }
-
-        my $infh  = new IO::File "<$exonerate_out"
-            or die "Can't read from file '$exonerate_out': $!\n";
-        my @tab   = <$infh>;
-        $infh->close();
-
-        my $flobj = new PirObject::ExonerateOutput();
-        $flobj->FillFeaturesFromTextOutput(\@tab);
-
-        my $ExoReports      = $flobj->report;   # One report contain information about one C4 section present in exonerate Output
-        my $grouped_reports = &SortAndGroupC4Report($ExoReports,$overlappe_authorized,$info);
-
-        my %group_len_covered = ();
-        foreach my $groupref (@$grouped_reports) {
-           my $covered = 0;
-           foreach my $report (@$groupref) {
-               my $cover = abs($report->query_stop() - $report->query_start()) + 1;
-               $covered += $cover;
-           }
-           $group_len_covered{$groupref} = $covered;
-        }
-
-        @$grouped_reports = sort { $group_len_covered{$b} <=> $group_len_covered{$a}
-                                                         ||
-                                             scalar(@$a) <=> scalar(@$b)
-                                } @$grouped_reports;
-
-        for (my $group_n=0; $group_n < @$grouped_reports; $group_n++) {  # Push information about the new exon
+         # Push information about the new exon
+        for (my $group_n=0; $group_n < @$grouped_reports; $group_n++) {
             my $group = @$grouped_reports[$group_n];
             my @exon_start_end = ();                                  # Tab with information about start and end of all exons present in Exonerte Output
             my %strand;
@@ -2670,99 +2600,96 @@ sub FindExonsInHypProtArray {
                     $strand{1}++  if $strand_exon eq "+";         # Just in order to know if we have a transpliced gene
                     $strand{-1}++ if $strand_exon eq "-";
                     $num_exon++;
-                 }
-
-                 my $count_exon = 0;
-                 foreach my $lineobj (@$features) {
-                     my $feat        = $lineobj->get_feature();
-                     next if $feat ne "exon";
-
-                     my $strand_exon = $lineobj->get_strand();
-                     my $start       = ($strand_exon eq "-" ? $lineobj->get_end()   : $lineobj->get_start());
-                     my $end         = ($strand_exon eq "-" ? $lineobj->get_start() : $lineobj->get_end());
-                     my $attributes  = $lineobj->get_attributes();
-                     my $info  = [$start,$end,$strand_exon,$start_query,$attributes,$end_query,$raw_score,$report_n,$count_exon];
-                     push(@exon_start_end, $info);
-                     # @exon_start_end contain information about exon with start end and strand of each exons
-                     $count_exon++;
-                 }
-             }
-
-             if ($strand{1} && $strand{-1}) {
-                 # If we have a transpliced gene
-                 &Add_comment_for_transpliced($contigname,$name,\@exon_start_end);
-                 $add_text_in_header .= ";;    $name may be either split by linearization of a circular-mapping genome, or it is trans-spliced (annotation in comments)\n";
-                 next;
-             }
-
-             my $isMinus = (($strand{1} && !$strand{-1}) ? 0 : 1);
-             @exon_start_end = sort {    ($a->[3] <=> $b->[3])
-                                     ||  ($a->[0] <=> $b->[0])} @exon_start_end if $isMinus == 0; # Sort exons_start_end by start strand-
-
-             @exon_start_end = sort {    ($a->[3] <=> $b->[3])
-                                     ||  ($b->[0] <=> $a->[0])} @exon_start_end if $isMinus == 1; # Sort exons_start_end by start strand+
-
-
-             # Adjust exons position if overlap at protein level
-             my $reduce_size =  0;
-             my $prot_start  = -1;
-             for (my $i = 0; $i < (@exon_start_end-1); $i++) {
-                if ($isMinus == 0) {
-                  if ( $exon_start_end[$i]->[5] > $exon_start_end[$i+1]->[3]) {
-                    $reduce_size = abs ( $exon_start_end[$i]->[5] - $exon_start_end[$i+1]->[3] );
-                    # If it is the first exon adjust exon position at dna level
-                    if ($exon_start_end[$i+1]->[8] == 0) {
-                      $exon_start_end[$i+1]->[0] = $exon_start_end[$i+1]->[0] + ($reduce_size * 3) + 3;
-                      $prot_start = $exon_start_end[$i+1]->[3] + $reduce_size + 1;
-                    }
-                    # Foreach exon of the group adjust exon position at protein level
-                    if ($prot_start != -1) {
-                      $exon_start_end[$i+1]->[3] = $prot_start;
-                    }
-                  }
-                } else {
-                  if ( $exon_start_end[$i]->[5] > $exon_start_end[$i+1]->[3]) {
-                    $reduce_size = abs ( $exon_start_end[$i]->[5] - $exon_start_end[$i+1]->[3] );
-                    # If it is the first exon adjust exon position at dna level
-                    if ($exon_start_end[$i+1]->[8] == 0) {
-                      $exon_start_end[$i+1]->[0] = $exon_start_end[$i+1]->[0] - ($reduce_size * 3) - 3;
-                      $prot_start                = $exon_start_end[$i+1]->[3] + $reduce_size + 1;
-                    }
-                    # Foreach exon of the group adjust exon position at protein level
-                    if ($prot_start != -1) {
-                      $exon_start_end[$i+1]->[3] = $prot_start;
-                    }
-                  }
                 }
-             }
 
-             # Correction about start and end of exon if two exons is overlapping #
-             my @exon_start_end_cor =();                                             # Correction about start and end of exon if two exons is overlapping
-             for (my $i = 0; $i < (@exon_start_end-1); $i++) {
-                 if ($isMinus == 0) {
-                     if (!( ($exon_start_end[$i]->[1] + 1 < $exon_start_end[$i+1]->[0]) || ($exon_start_end[$i+1]->[1] + 1 < $exon_start_end[$i]->[0]) )) {
-                         # Take the minus start and the bigger stop if exons is on strand +
-                         my $boolean = (($exon_start_end[$i]->[1] + 1 >= $exon_start_end[$i+1]->[0]) == 1 ? 0 : 1);
-                         my $start   = $exon_start_end[$i]->[0]   if !$boolean; # if E1_end > E2_start
-                         my $end     = $exon_start_end[$i+1]->[1] if !$boolean; # if E1_end > E2_start
-                            $start   = $exon_start_end[$i+1]->[0] if  $boolean; # if E2_end > E1_start
-                            $end     = $exon_start_end[$i]->[1]   if  $boolean; # if E2_end > E1_start
-                         my $strand_exon = $exon_start_end[$i]->[2];
-                         my $start_query = $exon_start_end[$i]->[3];
-                         my $raw_score   = $exon_start_end[$i]->[6];
-                         my $info = [$start,$end,$strand_exon,$i,$start_query,$raw_score]; # Start, End, Strand and Index
-                         push(@exon_start_end_cor, $info);
-                     }
-                 }
+                my $count_exon = 0;
+                foreach my $lineobj (@$features) {
+                    my $feat        = $lineobj->get_feature();
+                    next if $feat ne "exon";
 
-                elsif ($isMinus == 1) {
+                    my $strand_exon = $lineobj->get_strand();
+                    my $start       = ($strand_exon eq "-" ? $lineobj->get_end()   : $lineobj->get_start());
+                    my $end         = ($strand_exon eq "-" ? $lineobj->get_start() : $lineobj->get_end());
+                    my $attributes  = $lineobj->get_attributes();
+                    my $info  = [$start,$end,$strand_exon,$start_query,$attributes,$end_query,$raw_score,$report_n,$count_exon];
+                    push(@exon_start_end, $info);
+                    # @exon_start_end contain information about exon with start end and strand of each exons
+                    $count_exon++;
+                }
+            }
+
+            # If we have a transpliced gene we add a comment
+            if ($strand{1} && $strand{-1}) {
+                &Add_comment_for_transpliced($contigname,$name,\@exon_start_end);
+                $add_text_in_header .= ";;    $name may be either split by linearization of a circular-mapping genome, or it is trans-spliced (annotation in comments)\n";
+                next;
+            }
+
+            my $isMinus = (($strand{1} && !$strand{-1}) ? 0 : 1);
+            @exon_start_end = sort {    ($a->[3] <=> $b->[3])
+                                    ||  ($a->[0] <=> $b->[0])} @exon_start_end if $isMinus == 0; # Sort exons_start_end by start strand-
+
+            @exon_start_end = sort {    ($a->[3] <=> $b->[3])
+                                    ||  ($b->[0] <=> $a->[0])} @exon_start_end if $isMinus == 1; # Sort exons_start_end by start strand+
+
+
+            # Adjust exons position if overlap at protein level
+            my ($reduce_size,$prot_start) =  (0,-1);
+            for (my $i = 0; $i < (@exon_start_end-1); $i++) {
+                if ($isMinus == 0) {
+                    if ( $exon_start_end[$i]->[5] > $exon_start_end[$i+1]->[3]) {
+                        $reduce_size = abs ( $exon_start_end[$i]->[5] - $exon_start_end[$i+1]->[3] );
+                        # If it is the first exon adjust exon position at dna level
+                        if ($exon_start_end[$i+1]->[8] == 0) {
+                            $exon_start_end[$i+1]->[0] = $exon_start_end[$i+1]->[0] + ($reduce_size * 3) + 3;
+                            $prot_start = $exon_start_end[$i+1]->[3] + $reduce_size + 1;
+                        }
+                        # Foreach exon of the group adjust exon position at protein level
+                        if ($prot_start != -1) {
+                            $exon_start_end[$i+1]->[3] = $prot_start;
+                        }
+                    }
+                } else {
+                    if ( $exon_start_end[$i]->[5] > $exon_start_end[$i+1]->[3]) {
+                        $reduce_size = abs ( $exon_start_end[$i]->[5] - $exon_start_end[$i+1]->[3] );
+                        # If it is the first exon adjust exon position at dna level
+                        if ($exon_start_end[$i+1]->[8] == 0) {
+                            $exon_start_end[$i+1]->[0] = $exon_start_end[$i+1]->[0] - ($reduce_size * 3) - 3;
+                            $prot_start                = $exon_start_end[$i+1]->[3] + $reduce_size + 1;
+                        }
+                        # Foreach exon of the group adjust exon position at protein level
+                        if ($prot_start != -1) {
+                            $exon_start_end[$i+1]->[3] = $prot_start;
+                        }
+                    }
+                }
+            }
+
+            # Correction about start and end of exon if two exons is overlapping #
+            my @exon_start_end_cor = ();
+            for (my $i = 0; $i < (@exon_start_end-1); $i++) {
+                if ($isMinus == 0) {
+                    if (!( ($exon_start_end[$i]->[1] + 1 < $exon_start_end[$i+1]->[0]) || ($exon_start_end[$i+1]->[1] + 1 < $exon_start_end[$i]->[0]) )) {
+                        # Take the minus start and the bigger stop if exons is on strand +
+                        my $boolean     = (($exon_start_end[$i]->[1] + 1 >= $exon_start_end[$i+1]->[0]) == 1 ? 0 : 1);
+                        my $start       = $exon_start_end[$i]->[0]   if !$boolean; # if E1_end > E2_start
+                        my $end         = $exon_start_end[$i+1]->[1] if !$boolean; # if E1_end > E2_start
+                           $start       = $exon_start_end[$i+1]->[0] if  $boolean; # if E2_end > E1_start
+                           $end         = $exon_start_end[$i]->[1]   if  $boolean; # if E2_end > E1_start
+                        my $strand_exon = $exon_start_end[$i]->[2];
+                        my $start_query = $exon_start_end[$i]->[3];
+                        my $raw_score   = $exon_start_end[$i]->[6];
+                        my $info = [$start,$end,$strand_exon,$i,$start_query,$raw_score]; # Start, End, Strand and Index
+                        push(@exon_start_end_cor, $info);
+                    }
+                } elsif ($isMinus == 1) {
                     if (!( ($exon_start_end[$i+1]->[0] + 1 < $exon_start_end[$i]->[1]) || ($exon_start_end[$i]->[0] + 1 < $exon_start_end[$i+1]->[1]) )) {
                         # Take the minus start and the bigger stop if exons is on strand +
-                        my $boolean = (($exon_start_end[$i+1]->[0] + 1 >= $exon_start_end[$i]->[1]) == 1 ? 0 : 1);
-                        my $start   = $exon_start_end[$i]->[0]   if !$boolean; # if E2_start > E1_end
-                        my $end     = $exon_start_end[$i+1]->[1] if !$boolean; # if E2_start > E1_end
-                           $start   = $exon_start_end[$i+1]->[0] if  $boolean; # if E1_start > E2_end
-                           $end     = $exon_start_end[$i]->[1]   if  $boolean; # if E1_start > E2_end
+                        my $boolean     = (($exon_start_end[$i+1]->[0] + 1 >= $exon_start_end[$i]->[1]) == 1 ? 0 : 1);
+                        my $start       = $exon_start_end[$i]->[0]   if !$boolean; # if E2_start > E1_end
+                        my $end         = $exon_start_end[$i+1]->[1] if !$boolean; # if E2_start > E1_end
+                           $start       = $exon_start_end[$i+1]->[0] if  $boolean; # if E1_start > E2_end
+                           $end         = $exon_start_end[$i]->[1]   if  $boolean; # if E1_start > E2_end
                         my $strand_exon = $exon_start_end[$i]->[2];
                         my $start_query = $exon_start_end[$i]->[3];
                         my $raw_score   = $exon_start_end[$i]->[6];
@@ -2795,33 +2722,10 @@ sub FindExonsInHypProtArray {
             my ($gene_start,$gene_end) = ($exon_start_end[0]->[0],$exon_start_end[-1]->[1]);
                ($gene_start,$gene_end) = ($gene_end,$gene_start) if $isMinus == 1;
 
-            my $isTranspliced = 0;
-            for (my $i = @exon_start_end - 1; $i >= 0 ; $i--) {
-                my ($start,$end) = ($exon_start_end[$i]->[0],$exon_start_end[$i]->[1]);
-                next if !$start || !$end;
-                if (($start < $gene_start ) || ($end > $gene_end)) {
-                    my $file_with_alt = &Create_alternative_prot($dna_seq,\@exon_start_end,$i,$name);
-                    my $delete_or_not = &Choose_best_solution($file_with_alt,$input_prot,$i,$name);
-                       $isTranspliced = ( !$delete_or_not ? 1 : 0);
-                    splice(@exon_start_end, $i, 1) if !$isTranspliced;
-                    if ($isTranspliced) {
-                        &Add_comment_for_transpliced($contigname,$name,\@exon_start_end);
-                        $add_text_in_header .= ";;    $name may be either split by linearization of a circular-mapping genome, or it is trans-spliced (annotation in comments)\n";
-                        last;
-                    }
-                }
-            }
-            next if $isTranspliced;
 
-            # Define the tab of intron with the information about exons localisation
-            my @intron_start_end;
-            for (my $i = 0; $i < (@exon_start_end-1); $i++) {
-                my $start  = ($isMinus == 1 ? $exon_start_end[$i]->[1] - 1 : $exon_start_end[$i]->[1] + 1);
-                my $end    = ($isMinus == 1 ? $exon_start_end[$i+1]->[0] + 1 : $exon_start_end[$i+1]->[0] - 1);
-                my $strand_intron = $exon_start_end[$i]->[2];
-                my $info = [$start,$end,$strand_intron];
-                push(@intron_start_end, $info);
-            }
+
+
+            next if exonarate_found_transpliced(\@exon_start_end, $gene_start, $gene_end, $dna_seq, $name, $input_prot, $contigname, $add_text_in_header);
 
             my $hypprot = undef;
             my ($start,$end)        = ($exon_start_end[0]->[0],$exon_start_end[-1]->[1]);
@@ -2900,6 +2804,16 @@ sub FindExonsInHypProtArray {
                 push (@$hypprotexonarray, $hypprotexon);
             }
 
+            # Extract the intron information from the exon information
+            my @intron_start_end;
+            for (my $i = 0; $i < (@exon_start_end-1); $i++) {
+                my $start  = ($isMinus == 1 ? $exon_start_end[$i]->[1] - 1 : $exon_start_end[$i]->[1] + 1);
+                my $end    = ($isMinus == 1 ? $exon_start_end[$i+1]->[0] + 1 : $exon_start_end[$i+1]->[0] - 1);
+                my $strand_intron = $exon_start_end[$i]->[2];
+                my $info = [$start,$end,$strand_intron];
+                push(@intron_start_end, $info);
+            }
+
             my $hypprotintronarray = $hypprot->introns;
             for (my $i = 0; $i < @intron_start_end; $i++){
                 # Fill information about intron
@@ -2913,22 +2827,22 @@ sub FindExonsInHypProtArray {
 
             my $introns = $hypprot->get_introns();
             for (my $i = 0; $i < @$introns; $i++) {
-                 my $intron  = $introns->[$i];
-                 my $isMinus = ($intron->get_strand() eq "+" ? 0 : 1);
-                 my $OV      = &WhatOverlapsThis($intron->get_start(),$intron->get_end(),$contig);
-                 my $APC     = &MakeApCollection($OV,$contigname);
-                 $intron->set_idbyRNAw($APC);
-                 foreach my $info_who_overlap (@$OV){
-                     foreach my $OV_AP (@$info_who_overlap ){
-                         my ($AP_min,$AP_max,$AP)  = @$OV_AP;
-                         my $id_AP  = $1 if scalar($AP) =~ m/0x(.+)\)/;
-                         my $tab_id = [$id_AP];
-                         &Remove_AP($tab_id,$contig);
-                         &AddGroupUseAP($intron,$AP);
-                     }
-                 }
-                 next if $intron->get_type() || $LVL_INTRON == 2;
-                 &LocateIntrons($dna_seq,$intron,undef,$name,$contigname,$isMinus);
+                my $intron  = $introns->[$i];
+                my $isMinus = ($intron->get_strand() eq "+" ? 0 : 1);
+                my $OV      = &WhatOverlapsThis($intron->get_start(),$intron->get_end(),$contig);
+                my $APC     = &MakeApCollection($OV,$contigname);
+                $intron->set_idbyRNAw($APC);
+                foreach my $info_who_overlap (@$OV){
+                    foreach my $OV_AP (@$info_who_overlap ){
+                        my ($AP_min,$AP_max,$AP)  = @$OV_AP;
+                        my $id_AP  = $1 if scalar($AP) =~ m/0x(.+)\)/;
+                        my $tab_id = [$id_AP];
+                        &Remove_AP($tab_id,$contig);
+                        &AddGroupUseAP($intron,$AP);
+                    }
+                }
+                next if $intron->get_type() || $LVL_INTRON == 2;
+                &LocateIntrons($dna_seq,$intron,undef,$name,$contigname,$isMinus);
             }
 
             &CheckRealIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
@@ -2954,14 +2868,14 @@ sub FindExonsInHypProtArray {
                 my $start_line = ";; $name $arrow start";
                 $start_line .= $frameshift_comment eq "" ? " ;; mfannot: potential frameshift" : $frameshift_comment;
                 my $hyp_prot = new PirObject::AnnotPair(
-                                                 type      => "C",
-                                                 genename  => $name,
-                                                 startpos  => $start,
-                                                 endpos    => $exons->[-1]->get_dnaend(),
-                                                 direction => $arrow,
-                                                 startline => $start_line,
-                                                 endline   => ";; $name $arrow end",
-                                                 );
+                                                type      => "C",
+                                                genename  => $name,
+                                                startpos  => $start,
+                                                endpos    => $exons->[-1]->get_dnaend(),
+                                                direction => $arrow,
+                                                startline => $start_line,
+                                                endline   => ";; $name $arrow end",
+                                                );
                 &AddAnnotToPirMaster($contigname,$hyp_prot);
                 pop @$HYPPROTS;
                 next;
@@ -2978,15 +2892,83 @@ sub FindExonsInHypProtArray {
     }  # End of each prot
 } # End sub
 
+sub RunExonerate {
+    my ($i) = @_;
+
+    my $info = $PROT_FOR_EXONERATE[$i]; # table with values for each prot
+    my ($name, $contigname, $protein, $strand, $homologous, $namefusiongene, $origine, $ORF_start_end) = @$info;
+
+    # In order to have the contig sequence
+    my $contig  = $pirmaster->GetContigByName($contigname)
+        or die "Internal error: can't find contig named '$contigname'.\n";
+    my $dna_seq = $contig->get_sequence();
+       $dna_seq = uc($dna_seq);
+    my $seq     = ">sequence\n$dna_seq";
+
+    my $protein_length = 0;
+    my @tab_prot = split(/\n/, $protein);  # check this, it may not work properly
+    for (my $i = 0 ; $i <= $#tab_prot ; $i++) {
+        my $line = uc $tab_prot[$i];
+        next if $line =~ /^>/;
+        $line =~ tr/A-Z//cd;
+        $protein_length += length($line);
+    }
+
+    # Write protein and gene in fasta files
+    my $input_prot    = "$TMPDIR/Exonerate/${name}_prot_for_exonerate_${i}";
+    my $input_contig  = "$TMPDIR/Contigs/${contigname}.fna";
+    my $exonerate_out = "$TMPDIR/Exonerate/${name}_exonerate_${i}";
+
+    # Check if it exists
+    unlink($input_prot)    or die "Impossible to delete $input_prot\n"    if (-f $input_prot);
+    unlink($exonerate_out) or die "Impossible to delete $exonerate_out\n" if (-f $exonerate_out);
+
+    # Create protein for exonerate
+    my $FILEPROT = new IO::File ">$input_prot" or die "Impossible to open $input_prot\n";
+    print $FILEPROT $protein, "\n";
+    $FILEPROT->close() or die "Impossible to close $input_prot\n";
+
+    # Create genome for exonerate
+    if (! -f $input_contig) {
+        my $FH = new IO::File ">$input_contig" or die "Impossible to open $input_contig\n";
+        print $FH $seq, "\n";
+        $FH->close() or die "Impossible to close $input_contig\n";
+    }
+
+    my $Exonerate_parameter = "--model protein2genome --showcigar T --useaatla F --showquerygff T --showtargetgff T --minintron 142 --maxintron $MAXLENINTRONS --intronpenalty -35 --splice3 $MODEL_PATH/Splice/neutral.pssm --splice5 $MODEL_PATH/Splice/neutral.pssm --geneticcode $GENCODE";
+    my $cmd = "$EXONERATEPATH $Exonerate_parameter $input_prot $input_contig > $exonerate_out"; # $Exonerate_parameter $input_prot $input_contig
+    print "\n$cmd\n" if $DEBUG;
+
+    my $resultat = system("$cmd");
+
+    my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
+    my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
+    my $returncode  = $resultat >> 8;   # exit status of subprogram
+    if ($returncode > 1 || $signal > 0 || $hascoredump == 1) {
+        print "Error in execution of Exonerate \n";
+    }
+
+    my $infh  = new IO::File "<$exonerate_out"
+        or die "Can't read from file '$exonerate_out': $!\n";
+    my @exonerate_tab   = <$infh>;
+    $infh->close();
+
+    my $flobj = new PirObject::ExonerateOutput();
+    $flobj->FillFeaturesFromTextOutput(\@exonerate_tab);
+    my $ExonerateReoprts = $flobj->report;   # One report contain information about one C4 section present in exonerate Output
+
+    return ($protein_length,$dna_seq,$input_prot,$contig,$ExonerateReoprts);
+}
+
 sub SortAndGroupC4Report {
-    my ($ExoReports,$OV_authorized,$info) = @_;
+    my ($ExonerateReoprts,$OV_authorized,$info) = @_;
     my $name           = $info->[0];
 
 
-    my $Group_ER      = [];
-    foreach my $ER (@$ExoReports) {
+    my $grouped_reports      = [];
+    foreach my $ER (@$ExonerateReoprts) {
         if ($ER->get_raw_score() >= 200) {
-            push(@$Group_ER,[$ER]);
+            push(@$grouped_reports,[$ER]);
         } else {
             my $name           = $info->[0];
             my $contigname     = $info->[1];
@@ -3029,8 +3011,8 @@ sub SortAndGroupC4Report {
     }
 
     for (my $i = 0; ;) {
-        last if !($i < scalar(@$Group_ER));
-        my $GR        = $Group_ER->[$i];
+        last if !($i < scalar(@$grouped_reports));
+        my $GR        = $grouped_reports->[$i];
         my $GR_ini    = $GR->[0];
         my $GR_fin    = $GR->[-1];
         my $p_startGR = $GR_ini->get_query_start();
@@ -3038,20 +3020,20 @@ sub SortAndGroupC4Report {
         my $g_startGR = $GR_ini->get_target_start();
         my $g_endGR   = $GR_fin->get_target_stop();
 
-        my $best_sol     = &DefineBestSol($Group_ER,$p_startGR,$p_endGR,$g_startGR,$g_endGR,$OV_authorized,$i);
+        my $best_sol     = &DefineBestSol($grouped_reports,$p_startGR,$p_endGR,$g_startGR,$g_endGR,$OV_authorized,$i);
 
         $i++ if !(defined($best_sol));
         next if !(defined($best_sol));
 
         # Check if best solution of $i have for best solution $i
-        my $GR_bs        = $Group_ER->[$best_sol];
+        my $GR_bs        = $grouped_reports->[$best_sol];
         my $GR_ini_bs    = $GR_bs->[0];
         my $GR_fin_bs    = $GR_bs->[-1];
         my $p_startGR_bs = $GR_ini_bs->get_query_start();
         my $p_endGR_bs   = $GR_fin_bs->get_query_stop();
         my $g_startGR_bs = $GR_ini_bs->get_target_start();
         my $g_endGR_bs   = $GR_fin_bs->get_target_stop();
-        my $best_sol_bs  = &DefineBestSol($Group_ER,$p_startGR_bs,$p_endGR_bs,$g_startGR_bs,$g_endGR_bs,$OV_authorized,$best_sol);
+        my $best_sol_bs  = &DefineBestSol($grouped_reports,$p_startGR_bs,$p_endGR_bs,$g_startGR_bs,$g_endGR_bs,$OV_authorized,$best_sol);
 
         $i++ if $best_sol_bs != $i;
         next if $best_sol_bs != $i;
@@ -3059,10 +3041,48 @@ sub SortAndGroupC4Report {
         ($p_startGR < $p_startGR_bs ?
                 splice(@$GR,@$GR,0,@$GR_bs) # add $best_sol at end
               : splice(@$GR,0,0,@$GR_bs));  # add $best_sol at begin
-        splice(@$Group_ER,$best_sol,1);
+        splice(@$grouped_reports,$best_sol,1);
         next;
     }
-    return $Group_ER;
+
+    my %group_len_covered = ();
+    foreach my $groupref (@$grouped_reports) {
+        my $covered = 0;
+        foreach my $report (@$groupref) {
+            my $cover = abs($report->query_stop() - $report->query_start()) + 1;
+            $covered += $cover;
+        }
+        $group_len_covered{$groupref} = $covered;
+    }
+
+    @$grouped_reports = sort { $group_len_covered{$b} <=> $group_len_covered{$a}
+                                                        ||
+                                            scalar(@$a) <=> scalar(@$b)
+                            } @$grouped_reports;
+
+    return $grouped_reports;
+}
+
+sub exonarate_found_transpliced {
+    my ($exon_start_end, $gene_start, $gene_end, $dna_seq, $name, $input_prot, $contigname, $add_text_in_header) = @_;
+
+    my $isTranspliced = 0;
+    for (my $i = @$exon_start_end - 1; $i >= 0 ; $i--) {
+        my ($start,$end) = ($exon_start_end->[$i]->[0],$exon_start_end->[$i]->[1]);
+        next if !$start || !$end;
+        if (($start < $gene_start ) || ($end > $gene_end)) {
+            my $file_with_alt = &Create_alternative_prot($dna_seq,$exon_start_end,$i,$name);
+            my $delete_or_not = &Choose_best_solution($file_with_alt,$input_prot,$i,$name);
+            $isTranspliced = ( !$delete_or_not ? 1 : 0);
+            splice(@$exon_start_end, $i, 1) if !$isTranspliced;
+            if ($isTranspliced) {
+                &Add_comment_for_transpliced($contigname,$name,$exon_start_end);
+                $add_text_in_header .= ";;    $name may be either split by linearization of a circular-mapping genome, or it is trans-spliced (annotation in comments)\n";
+                last;
+            }
+        }
+    }
+    return $isTranspliced;
 }
 
 sub DefineBestSol {
