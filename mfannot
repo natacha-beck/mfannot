@@ -2706,11 +2706,7 @@ sub FindExonsInHypProtArray {
             }
 
             for (my $i=0; $i < @exon_start_end_cor; $i++) {  # Push information about the new exon
-                my $start       = $exon_start_end_cor[$i]->[0];
-                my $end         = $exon_start_end_cor[$i]->[1];
-                my $strand_exon = $exon_start_end_cor[$i]->[2];
-                my $start_query = $exon_start_end_cor[$i]->[4];
-                my $raw_score   = $exon_start_end_cor[$i]->[5];
+                my ($start, $end, $strand_exon, $start_query, $raw_score) = @{$exon_start_end_cor[$i]}[0, 1, 2, 4, 5];
                 my $info        = [$start,$end,$strand_exon,$start_query,$raw_score];
                 push(@exon_start_end, $info );  # Push information about the exon corrected into @exons_start_end
             }
@@ -2722,11 +2718,9 @@ sub FindExonsInHypProtArray {
             my ($gene_start,$gene_end) = ($exon_start_end[0]->[0],$exon_start_end[-1]->[1]);
                ($gene_start,$gene_end) = ($gene_end,$gene_start) if $isMinus == 1;
 
+            next if &exonarate_found_transpliced(\@exon_start_end, $gene_start, $gene_end, $dna_seq, $name, $input_prot, $contigname, $add_text_in_header);
 
-
-
-            next if exonarate_found_transpliced(\@exon_start_end, $gene_start, $gene_end, $dna_seq, $name, $input_prot, $contigname, $add_text_in_header);
-
+            # Create the HypProt object
             my $hypprot = undef;
             my ($start,$end)        = ($exon_start_end[0]->[0],$exon_start_end[-1]->[1]);
             my $FirstExonerateMatch = $exon_start_end[0]->[3];
@@ -2749,6 +2743,7 @@ sub FindExonsInHypProtArray {
                                                  );
             push (@$HYPPROTS,  $hypprot);
 
+            # Add information about the gene fusion
             if ($namefusiongene) {
                 my $info_gene_fusion = new PirObject::HypFusion ( name => $namefusiongene );
                 $hypprot->set_hypfusiongene($info_gene_fusion);
@@ -2760,13 +2755,8 @@ sub FindExonsInHypProtArray {
             my $msg                 = "";
             for (my $i = 0; $i < @exon_start_end; $i++){
                 # Fill information about exon
-                my ($dnastart, $dnaend, $strand, $FirstExoMatch, $attributes, $exoscore) = (
-                                                                    $exon_start_end[$i]->[0],
-                                                                    $exon_start_end[$i]->[1],
-                                                                    $exon_start_end[$i]->[2],
-                                                                    $exon_start_end[$i]->[3],
-                                                                    $exon_start_end[$i]->[4],
-                                                                    $exon_start_end[$i]->[6]);
+                my ($dnastart, $dnaend, $strand, $FirstExoMatch, $attributes, $exoscore) =
+                   @{$exon_start_end[$i]}[0, 1, 2, 3, 4, 6];
 
                 my ($frameshift_size,$have_frameshift) = $attributes =~ m/frameshifts\s+(\d+)/ ? ($1,1) : (undef,0);
 
@@ -2786,6 +2776,7 @@ sub FindExonsInHypProtArray {
                     }
                 }
 
+                # Comment in case of frameshift
                 if ($have_frameshift) {
                     $frameshift_detected = 1;
                     # Add information about frameshift at the lvl of $msg but specify the exon and the frameshift size
@@ -2807,7 +2798,7 @@ sub FindExonsInHypProtArray {
             # Extract the intron information from the exon information
             my @intron_start_end;
             for (my $i = 0; $i < (@exon_start_end-1); $i++) {
-                my $start  = ($isMinus == 1 ? $exon_start_end[$i]->[1] - 1 : $exon_start_end[$i]->[1] + 1);
+                my $start  = ($isMinus == 1 ? $exon_start_end[$i]->[1]   - 1 : $exon_start_end[$i]->[1] + 1);
                 my $end    = ($isMinus == 1 ? $exon_start_end[$i+1]->[0] + 1 : $exon_start_end[$i+1]->[0] - 1);
                 my $strand_intron = $exon_start_end[$i]->[2];
                 my $info = [$start,$end,$strand_intron];
@@ -2882,6 +2873,12 @@ sub FindExonsInHypProtArray {
             }
 
             my $hypprot_list = &CheckLenIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
+
+            # print Data::Dumper->Dump([$hypprot_list], [qw(hypprot_list)]);
+
+            # Look if we have an protein in which a stop codon is present
+            &CheckStopCodonInProtein($hypprot_list,$dna_seq,$name,$contigname,$pirmaster);
+
             if (scalar(@$hypprot_list) > 1) {
                 splice(@$HYPPROTS,-1,1);
                 foreach my $hypprot (@$hypprot_list) {
@@ -3265,6 +3262,20 @@ sub CheckLenIntrons {
     return [$hypprot] if scalar(@$BadList) == 0;
     my $hypprot_list = &SplitEachProt($BadList,$hypprot);
     return $hypprot_list;
+}
+
+# Check if we have a stop codon in the protein
+sub CheckStopCodonInProtein {
+    my ($hypprot_list,$seq,$name,$contigname,$pirmaster) = @_;
+
+    # Iterate over each protein
+    foreach my $hypprot (@$hypprot_list) {
+        # Use the GetProteinSequenceAndIntronsPos to get the protein sequence
+        # and the position of the introns
+        my $exons   = $hypprot->get_exons();
+        my $introns = $hypprot->get_introns();
+        my $seq     = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot);
+    }
 }
 
 sub BadIntron {
@@ -3865,27 +3876,59 @@ sub GetProteinSequenceAndIntronsPos {
     my $length_tot   = 0;
 
     for (my $i = 0 ; $i < scalar(@$exons) ; $i++) {
-        my $hasFrameshift = $exons->[$i]->frameshiftsize();
+        my $exon = $exons->[$i];
+        my $hasFrameshift = $exon->frameshiftsize();
         return "Frame-Shift-Detected" if $hasFrameshift;
-        my $start         = $exons->[$i]->dnastart()   || next;
-        my $end           = $exons->[$i]->dnaend()     || next;
-        my $isMinus       = ($exons->[$i]->strand eq "+" ? 0 : 1);
+
+        my $start         = $exon->dnastart()   || next;
+        my $end           = $exon->dnaend()     || next;
+        my $isMinus       = ($exon->strand eq "+" ? 0 : 1);
         ($start,$end)     = ($end,$start) if $isMinus;
+
         my $length_exon   = $end - $start + 1;
         my $exon_seq      = uc (substr($seq, $start - 1 , $length_exon ));
+
         my $reverse_exon  = $exon_seq;
            $reverse_exon  =~ tr/ACGT/TGCA/;
            $reverse_exon  = reverse $reverse_exon;
            $dna_sequence .= (!$isMinus ? $exon_seq : $reverse_exon);
+
         my $start_pos     = int($length_tot/3) + 1;
         $length_tot      += $length_exon;
         my $end_pos       = int($length_tot/3);
-        my $phase         = $length_tot % 3;
-        $exons->[$i]->set_protstart($start_pos);
-        $exons->[$i]->set_protend($end_pos);
-        $introns->[$i]->set_intronpos($end_pos) if defined($introns->[$i]);
-        $introns->[$i]->set_phase($phase)       if defined($introns->[$i]);
+        my $intron_phase  = $length_tot % 3;
+
+
+        # Set intron extra info
+        my $intron = $introns->[$i];
+        $intron->set_intronpos($end_pos) if defined($intron);
+        $intron->set_phase($intron_phase)       if defined($intron);
+
+        # Set exon extra info
+        my $previous_intron = $introns->[$i-1] if $i > 0;
+        my $previous_exon   = $exons->[$i-1]   if $i > 0;
+        $exon->set_protstart($start_pos);
+        $exon->set_protend($end_pos);
+        $exon->set_ntsequence($exon_seq);
+        # Need to set starting phase and ending phase
+        my $starting_phase  = $i == 0 ? 0 : (3-$previous_exon->get_endingphase()) % 3;
+        $exon->set_startingphase($starting_phase);
+        my $ending_phase    = $intron_phase;
+        $exon->set_endingphase($ending_phase);
+        # Cut the exon sequence to remove extra nt if the exon is not in phase
+        # 1. Remove the starting_phase nt
+        my $trimmed_exon = substr($exon_seq,$starting_phase);
+        # 2. Remove the ending_phase nt
+        my $trimmed_exon = substr($trimmed_exon,0,length($trimmed_exon)-$ending_phase);
+
+        print "Exon $i:\n";
+
+        my $aa_seq = &TranslateInProt($trimmed_exon);
+        print "$aa_seq\n";
+        $exon->set_aasequence($aa_seq);
     }
+
+    print "=========================================\n";
 
     my $dna_length    = length($dna_sequence);
     return "Frame-Shift-Detected" if $dna_length % 3 != 0;
