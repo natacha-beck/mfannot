@@ -1765,8 +1765,9 @@ sub AdjustStartByHMMForBLASTandExonerate {
     # Def protein sequence
     my $prot             = $hypprot->get_name();
 
-    my $protein_sequence = &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus)  if !$WithIntrons;
-       $protein_sequence = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if  $WithIntrons;
+    my $protein_sequence = scalar(@$introns) > 0 ? &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) :
+                                                   &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus);
+    
     $hypprot->set_thisprot($protein_sequence);
 
     # If a frameshift is detected, we don't run HMM
@@ -3274,8 +3275,183 @@ sub CheckStopCodonInProtein {
         # and the position of the introns
         my $exons   = $hypprot->get_exons();
         my $introns = $hypprot->get_introns();
-        my $seq     = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot);
+
+        
+        my $seq     = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if scalar(@$introns) > 0;
+
+        my $isMinus = ($hypprot->get_strand() eq "+" ? 0 : 1);
+
+        # Iterate over each exons:
+        # If the exon is not the last one, we will look for a stop codon
+        #     - If we found a stop codon, we need to know the position of it,
+        #     - If it is in the first half we trimed the sequence from the start to stop codon + 1
+        #     - If it is in the second half we trimed the sequence from the stop codon + to the end
+        for (my $i = 0; $i < scalar(@$exons); $i++) {
+            my $exon = $exons->[$i];
+            my $aa_seq = $exon->get_aasequence();
+            my $nt_seq = $exon->get_ntsequence();
+            
+            next if !$aa_seq && !$nt_seq;
+            next if $aa_seq !~ /\*/; # No stop codon in this exon
+            
+            # Should be a special case 
+            next if $i == scalar(@$exons) - 1; # We are in the last exon
+
+            # Identify the 1st stop codon
+            my $first_stop = index($aa_seq, '*');
+            # Identify the last stop codon
+            my $last_stop = rindex($aa_seq, '*');
+
+            # We only have one stop codon
+            if ($first_stop == $last_stop) {
+                print "Hypprot name:", $hypprot->get_name(), "\n"; 
+                &SimpleAdjustExonIntronInfoIfStopCodon($exon, $i, $introns, $aa_seq, $nt_seq, $first_stop, $last_stop, $isMinus);                
+            } else {
+                # TODO: We have more than one stop codon
+                print "Hypprot name:", $hypprot->get_name(), "\n"; 
+                print "More than one stop codon\n";
+            }
+        }
     }
+}
+
+sub SimpleAdjustExonIntronInfoIfStopCodon {
+    my ($exon, $i, $introns, $aa_seq, $nt_seq, $first_stop, $last_stop, $isMinus) = @_;
+    
+    my $is_left_side_stop = 1 if $first_stop > length($aa_seq)/2;
+
+    # # Adjust exon aa sequence
+    # my $new_aa_seq = $is_left_side_stop ? substr($aa_seq, 0, $first_stop) : 
+    #                                       substr($aa_seq, $last_stop + 1);
+    # $exon->set_aasequence($new_aa_seq);
+
+    # # Adjust exon nt sequence
+    # my $new_nt_seq = $is_left_side_stop ? substr($nt_seq, 0, (($first_stop * 3) + $exon->get_endingphase()) - 3) : 
+    #                                       substr($nt_seq, (($last_stop * 3) + $exon->get_endingphase()) - 3);
+    # $exon->set_ntsequence($new_nt_seq);
+
+    # my $diff_aa_exon_length = length($aa_seq) - length($new_aa_seq);
+    
+    if ($is_left_side_stop) {
+        # Adjust exon aa sequence
+        my $new_aa_seq = $is_left_side_stop ? substr($aa_seq, 0, $first_stop) : 
+                                            substr($aa_seq, $last_stop + 1);
+        $exon->set_aasequence($new_aa_seq);
+
+        # Adjust exon nt sequence
+        my $new_nt_seq = $is_left_side_stop ? substr($nt_seq, 0, (($first_stop * 3) + $exon->get_endingphase()) - 3) : 
+                                            substr($nt_seq, (($last_stop * 3) + $exon->get_endingphase()) - 3);
+        $exon->set_ntsequence($new_nt_seq);
+
+        # Adjust exon stop
+        my $diff_nt_exon_length = length($new_nt_seq) - length($nt_seq);
+        my $new_nt_end = !$isMinus ? $exon->get_dnaend() - $diff_nt_exon_length:
+                                     $exon->get_dnaend() + $diff_nt_exon_length;
+        $exon->set_dnaend($new_nt_end);
+
+    print Data::Dumper->Dump([$aa_seq, $new_aa_seq, $nt_seq, $new_nt_seq], [qw(aa_seq new_aa_seq nt_seq new_nt_seq)]);
+
+        # Adjust exon protend
+        my $diff_aa_exon_length = length($aa_seq) - length($new_aa_seq);
+        my $new_prot_end        = $exon->get_protend() - $diff_aa_exon_length;
+        print "Old prot end: ", $exon->get_protend(), "\n";
+        print "New prot end: ", $new_prot_end, "\n";
+        $exon->set_protend($new_prot_end);
+
+        # Adjust the position of the next intron
+        my $next_intron = $introns->[$i];
+        my $new_intron_start = !$isMinus ? $exon->get_dnaend() - 1 : $exon->get_dnaend() + 1;
+        print "Old intron start: ", $next_intron->get_start(), "\n";
+        print "New intron start: ", $new_intron_start, "\n";
+        $next_intron->set_start($new_intron_start);
+
+        # Adjust the position of the next intron
+        my $new_intron_pos = $next_intron->get_intronpos() - (length($aa_seq) - length($new_aa_seq));
+        print "Old intron pos: ", $next_intron->get_intronpos(), "\n";
+        print "New intron pos: ", $new_intron_pos, "\n";
+        $next_intron->set_intronpos($new_intron_pos);
+
+        
+
+    print "In if is_left_side_stop\n";
+
+    } else {
+
+    print "In else is_left_side_stop\n";
+        # # Adjust exon protstart
+        # my $new_prot_start      = $exon->get_protstart() + $diff_aa_exon_length;
+        # $exon->set_protstart($new_prot_start);
+    
+        # # Adjust the position of the previous intron
+        # my $prev_intron = $introns->[$i - 1];
+        # my $new_intron_end = !$isMinus ? $exon->get_dnastart() + 1 : $exon->get_dnastart() - 1;
+        # $prev_intron->set_end($new_intron_end);
+
+        # # Adjust the position of the previous intron
+        # my $new_intron_pos = $prev_intron->get_intronpos() + (length($aa_seq) - length($new_aa_seq));
+        # $prev_intron->set_intronpos($new_intron_pos);       
+    }
+
+
+    # # If the stop codon is in the first half
+    # if ($first_stop > length($aa_seq)/2) {
+    #     # Adjust exon aa sequence
+    #     my $new_aa_seq = substr($aa_seq, 0, $first_stop);
+    #     $exon->set_aasequence($new_aa_seq);
+
+    #     # Adjust exon nt sequence
+    #     my $new_ntsequence = substr($nt_seq, 0, (($first_stop * 3) + $exon->get_endingphase()) - 3);
+    #     $exon->set_ntsequence($new_ntsequence);
+
+    #     # Adjust exon stop
+    #     my $diff_nt_exon_length = length($new_ntsequence) - length($nt_seq);
+    #     my $new_nt_end = !$isMinus ? $exon->get_dnaend() - $diff_nt_exon_length:
+    #                                     $exon->get_dnaend() + $diff_nt_exon_length;
+    #     $exon->set_dnaend($new_nt_end);
+
+    #     # Adjust exon protend
+    #     my $diff_aa_exon_length = length($aa_seq) - length($new_aa_seq);
+    #     my $new_prot_end        = $exon->get_protend() - $diff_aa_exon_length;
+    #     $exon->set_protend($new_prot_end);
+
+    #     # Adjust the position of the next intron
+    #     my $next_intron = $introns->[$i];
+    #     my $new_intron_start = !$isMinus ? $exon->get_dnaend() - 1 : $exon->get_dnaend() + 1;
+    #     $next_intron->set_start($new_intron_start);
+
+    #     # Adjust the position of the next intron
+    #     my $new_intron_pos = $next_intron->get_intronpos() - (length($aa_seq) - length($new_aa_seq));
+    #     $next_intron->set_intronpos($new_intron_pos);
+    # } else {
+    #     # Adjust exon aa sequence
+    #     my $new_aa_seq = substr($aa_seq, $last_stop + 1);
+    #     $exon->set_aasequence($new_aa_seq);
+
+    #     # Adjust exon nt sequence
+    #     my $new_ntsequence = substr($nt_seq, (($last_stop * 3) + $exon->get_endingphase()) - 3);
+    #     $exon->set_ntsequence($new_ntsequence);
+
+    #     # Adjust exon stop
+    #     my $diff_nt_exon_length = length($new_ntsequence) - length($nt_seq);
+    #     my $new_nt_end = !$isMinus ? $exon->get_dnaend() - $diff_nt_exon_length:
+    #                                     $exon->get_dnaend() + $diff_nt_exon_length;
+    #     $exon->set_dnaend($new_nt_end);
+
+    #     # Adjust exon protend
+    #     my $diff_aa_exon_length = length($aa_seq) - length($new_aa_seq);
+    #     my $new_prot_end        = $exon->get_protend() - $diff_aa_exon_length;
+    #     $exon->set_protend($new_prot_end);
+
+    #     # Adjust the position of the next intron
+    #     my $next_intron = $introns->[$i];
+    #     my $new_intron_start = !$isMinus ? $exon->get_dnaend() - 1 : $exon->get_dnaend() + 1;
+    #     $next_intron->set_start($new_intron_start);
+
+    #     # Adjust the position of the next intron
+    #     my $new_intron_pos = $next_intron->get_intronpos() - (length($aa_seq) - length($new_aa_seq));
+    #     $next_intron->set_intronpos($new_intron_pos);
+    # }
+
 }
 
 sub BadIntron {
@@ -3466,12 +3642,7 @@ sub AddInfoAboutGeneFusion {
 }
 
 sub TreatmentOfFusion {
-    my $hypprot   = shift;
-    my $contig    = shift;
-    my $isMinus   = shift;
-    my $len_seq   = shift;
-    my $exons     = shift;
-    my $idByExo   = (scalar(@$exons) != 0 ? 1 : 0);
+    my ($hypprot,$contig,$isMinus,$len_seq,$exons) = @_;
 
     my $start_gene   = $hypprot->get_start();
        $start_gene   = ( $isMinus ? $len_seq - $start_gene + 1 : $start_gene);
@@ -3483,6 +3654,7 @@ sub TreatmentOfFusion {
     my $fusion_name  = $fusion_info->get_name();
 
     # Add comment for the second gene
+    my $idByExo      = (scalar(@$exons) != 0 ? 1 : 0);
     if ($start_gene > $start_fusion) {
         my $simi_start = $hypprot->get_blaststart() || $hypprot->get_exostart();
         $hypprot->set_start($simi_start);
@@ -3534,6 +3706,7 @@ sub AnnotateMiniExonsByHMM {
         my ($ThisProt,$Align,$PP,$PercentId,$AliSeq,$protaln) = ("","","","","","");
 
         INTRON: for (my $i = 0; $i < @$Introns; $i++) {
+            my $intron    = $Introns->[$i];
             my $ShortName  = "${Name}_$Flag";
             if ($MakeAli == 1) {
                 # Make Ali with HMMalign, remake ali if exon was add
@@ -3584,7 +3757,7 @@ sub AnnotateMiniExonsByHMM {
 
             my $LenAdj_f = $LenAdj_p + $LenAdj_n;
             next if $LenAdj_f == 0;
-            if ( $LenAdj_f >= 20) {
+            if ( $LenAdj_f >= 25) {
                $Intron->set_comment("Potentially missing exon (~$LenAdj_f)");
                next;
             }
@@ -3921,14 +4094,14 @@ sub GetProteinSequenceAndIntronsPos {
         # 2. Remove the ending_phase nt
         my $trimmed_exon = substr($trimmed_exon,0,length($trimmed_exon)-$ending_phase);
 
-        print "Exon $i:\n";
+        # print "Exon $i:\n";
 
         my $aa_seq = &TranslateInProt($trimmed_exon);
-        print "$aa_seq\n";
+        # print "$aa_seq\n";
         $exon->set_aasequence($aa_seq);
     }
 
-    print "=========================================\n";
+    # print "=========================================\n";
 
     my $dna_length    = length($dna_sequence);
     return "Frame-Shift-Detected" if $dna_length % 3 != 0;
