@@ -2877,8 +2877,6 @@ sub FindExonsInHypProtArray {
 
             my $hypprot_list = &CheckLenIntrons($hypprot,$dna_seq,$name,$contigname,$pirmaster);
 
-            # print Data::Dumper->Dump([$hypprot_list], [qw(hypprot_list)]);
-
             # Look if we have an protein in which a stop codon is present
             &CheckStopCodonInProtein($hypprot_list,$dna_seq,$name,$contigname,$pirmaster);
 
@@ -3706,8 +3704,6 @@ sub AnnotateMiniExonsByHMM {
             my $intron    = $Introns->[$i];
             my $ShortName = "${Name}_$Flag";
 
-            print "--------------------------------------Intron: $i\n";
-
             if ($MakeAli == 1) {
                 # Make Ali with HMMalign, remake ali if exon was add
                 ($Align,$PP,$PercentId,$AliSeq,$protaln) = &CreateAlignForMiniEx($Exons,$Introns,$Seq,$hypprot,$Name,$ShortName,$NbChange);
@@ -3723,8 +3719,6 @@ sub AnnotateMiniExonsByHMM {
             my $UseSeq    = $isMinus ? "$ReverseSeq" : "$Seq";
             my $LenSeq    = length($Seq);
             my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos,$hypprot->get_trimIndexFive(),$hypprot->get_trimIndexThree());
-            # print Data::Dumper->Dump([$hypprot->get_trimIndexFive(),$hypprot->get_trimIndexThree()], [qw(trimIndexFive trimIndexThree)]);
-            # print Data::Dumper->Dump([$IntronPosAli], [qw(IntronPosAli)]);
             
             next if !$IntronPosAli;
             my $Exon_p = @$Exons[$i]   || next;
@@ -3732,41 +3726,33 @@ sub AnnotateMiniExonsByHMM {
 
             # Make sub-alignement
             my ($SubAliHomo,$IntronPosSub,$Sub_PP,$Sub_Ali)  = &MakeSubAlignment($Align,$HypprotSeq,$IntronPosAli,$Exon_p,$Exon_n,$PP,$AliSeq);
-            print "After MakeSubAlignment\n";
-            # print "SubAliHomo: $SubAliHomo\n";
+
             # Use HMM in order to def missing exons
             my ($LenAdj_p,$Dash_p,$LenAdj_n,$Dash_n,$id_HMM) = &DefAdjIntronByHMM($Sub_PP,$Sub_Ali,$IntronPosSub);
-            print "After DefAdjIntronByHMM\n";
-            # print Data::Dumper->Dump([$LenAdj_p,$Dash_p,$LenAdj_n,$Dash_n,$id_HMM], [qw(LenAdj_p Dash_p LenAdj_n Dash_n id_HMM)]);
+
             # Locate Intron by RNAweasel.
             my $apc = $Intron->get_idbyRNAw() || die "idbyRNAw() is Empty\n";
             my $apl = $apc->get_annotpairlist();
             my $NbIntron = scalar(@$apl);
             # Make Sub Ali
             my $SubAliProt = &RemoveHypprotInAlignment($SubAliHomo);
-            print "After RemoveHypprotInAlignment\n";
+
             # Percent of each aa on each pos in homologous prot
             my $Percent    = &AaPercentInHomologous($SubAliHomo);
-            # print Data::Dumper->Dump([$Percent], [qw(Percent)]);
-            print "After AaPercentInHomologous\n";
 
             # Special case if the sequence around the exon/intron junction
             # is the same between my_prot and the closest homologous prot,
             # only if there is one intron or less.
             if ($NbIntron < 2)  {
                 next if &SameSeqAroundExonIntronJunction($SubAliHomo,$Sub_Ali,$IntronPosSub,$LenAdj_p,$LenAdj_n) ;
-                print "After SameSeqAroundExonIntronJunction\n";
             }
 
             if ($NbIntron >= 2 && $LenAdj_p == 0 && $LenAdj_n == 0) {
                 # Indicate if the position is conserved on hypprot
                 # compare hypprot aa with the other aa in alignment
                 my $ConservedSeq      = &CompareEachPosOfHypprotWithHomologous($SubAliProt,$Percent);
-                print "After CompareEachPosOfHypprotWithHomologous\n";
                 # Use old method in order to def missing exons.
-                # print Data::Dumper->Dump([$ConservedSeq], [qw(ConservedSeq)]);
                 ($LenAdj_p,$LenAdj_n) = &DefineAdjustIntron($ConservedSeq,$IntronPosSub,$PercentId);
-                print "After DefineAdjustIntron\n";
             }
 
             my $LenAdj_f = $LenAdj_p + $LenAdj_n;
@@ -3776,20 +3762,11 @@ sub AnnotateMiniExonsByHMM {
                next;
             }
 
-            # To add
-            # Adjust $LengthAdj_p and $LengthAdj_n if position is a gap in all other homologous prot
-            my ($SubAliHomo,$IntronPosSub,$LenAdj_p,$LenAdj_n) = &AdjustLengthAdjIfGapInAllHomologous($Percent,$SubAliHomo,$IntronPosSub,$LenAdj_p,$LenAdj_n);
-
-            print Data::Dumper->Dump([$LenAdj_p,$LenAdj_n], [qw(LenAdj_p LenAdj_n)]);
-
-            my ($SubPercent,$ExonAli)  = &DefineSeqAndAliOfResearchExon($Percent,$SubAliHomo,$IntronPosSub,$LenAdj_p,$LenAdj_n);
-            print Data::Dumper->Dump([$SubPercent,$ExonAli], [qw(SubPercent ExonAli)]);
-            print "After DefineSeqAndAliOfResearchExon\n";
+               ($IntronPosSub,$LenAdj_p,$LenAdj_n) = &AdjustLengthAdjIfGapInAllHomologous($Percent,$IntronPosSub,$LenAdj_p,$LenAdj_n,$Exon_p,$Exon_n);
+            my ($SubPercent,$ExonAli)              = &DefineSeqAndAliOfResearchExon($Percent,$SubAliHomo,$IntronPosSub,$LenAdj_p,$LenAdj_n);
+            
             next if $NbIntron < 2 && $LenAdj_f <= 2; # Initial annotation is considered to be true
             my ($Seq_p,$Seq_n) = &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"deconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
-            # print Data::Dumper->Dump([$LenAdj_p,$LenAdj_n], [qw(LenAdj_p LenAdj_n)]);
-            # print Data::Dumper->Dump([$Seq_p,$Seq_n], [qw(Seq_p Seq_n)]);
-            print "After AdjustExonsIntron\n";
             if ($Seq_n eq "") {
               &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"reconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
               next;
@@ -3829,8 +3806,6 @@ sub AnnotateMiniExonsByHMM {
                 &ReajustExonAndIntron($Introns,$Exons,$i,$BestSol,$isMinus)
             }
             else {
-                print "Add mini exon\n";
-                # print Data::Dumper->Dump([$BestSol], [qw(BestSol)]);
                 &AddMiniExon($Introns,$Exons,$i,$BestSol,$isMinus);
                 ($DefIntron,$MakeAli) = (0,1);
                 $NbChange++;
@@ -4119,7 +4094,7 @@ sub GetProteinSequenceAndIntronsPos {
         # 1. Remove the starting_phase nt
         my $trimmed_exon = !$isMinus ? substr($exon_seq,$starting_phase) : substr($reverse_exon,$starting_phase);
         # 2. Remove the ending_phase nt
-        my $trimmed_exon = substr($trimmed_exon,0,length($trimmed_exon)-$ending_phase);
+           $trimmed_exon = substr($trimmed_exon,0,length($trimmed_exon)-$ending_phase);
 
         my $aa_seq = &TranslateInProt($trimmed_exon);
 
@@ -4168,10 +4143,6 @@ sub DefAdjIntronByHMM {
     my ($Sub_PP,$Sub_Ali,$IntronPosSub) = @_;
     # Special case if an Exon have a stop codon
     my ($LenAdj_p,$Dash_p) = (0,0);
-
-    # print "---------------------------------------------------\n";
-    # print Data::Dumper->Dump([$Sub_Ali], [qw(-----Sub_Ali-----)]);
-    # print "---------------------------------------------------\n";
 
     # Treat prev Exon
     my $HMM_p    = substr($Sub_PP,0,$IntronPosSub);
@@ -4241,17 +4212,18 @@ sub DefAdjIntronByHMM {
 sub MakeSubAlignment {
     # In order to make sub-alignment
     my ($align,$hypprot_seq,$IntronPosAli,$PreviousExon,$NextExon,$PP,$AliSeq) = @_;
+    
     my ($PreviousExon_start,$PreviousExon_End) = ($PreviousExon->get_protstart(),$PreviousExon->get_protend());
     my ($NextExon_start,$NextExon_End)         = ($NextExon->get_protstart()    ,$NextExon->get_protend());
 
-    my $IntronPosSub = $PreviousExon_End - $PreviousExon_start;
-    my $start        = $IntronPosAli - $IntronPosSub;
+    my $IntronPosSub = $PreviousExon_End - $PreviousExon_start + 1;
+    my $start        = $IntronPosAli - $IntronPosSub + 1;
        $start        = 1 if $start < 1;
 
     my $num2         = $NextExon_End-$NextExon_start+1;
     my $end          = $IntronPosAli + $num2;
 
-    my $SubAliHomo    = $align->slice($start, $end);
+    my $SubAliHomo   = $align->slice($start, $end);
     my $Len          = $end - $start + 1;
     my $Sub_PP       = substr($PP, $start - 1,$Len);
     my $Sub_Ali      = substr($AliSeq, $start - 1,$Len);
@@ -4263,8 +4235,6 @@ sub MakeSubAlignment {
 # between the closest species and the current species.
 sub SameSeqAroundExonIntronJunction {
     my ($SubAliHomo,$Sub_Ali,$IntronPosSub,$LenAdj_p,$LenAdj_n) = @_;
-
-    # print Data::Dumper->Dump([$SubAliHomo,$Sub_Ali,$IntronPosSub,$LenAdj_p,$LenAdj_n], [qw(SubAliHomo Sub_Ali IntronPosSub LenAdj_p LenAdj_n)]);
 
     my $ClosestSeq      = $SubAliHomo->get_seq_by_id('a')->seq();
 
@@ -4459,14 +4429,13 @@ sub AdjustExonsIntron {
 
 # Adjust the length of adjustement if all pos in homologous are a gap
 sub AdjustLengthAdjIfGapInAllHomologous {
-    my ($percent,$sub_ali_homo,$intron_pos_sub,$len_adj_p,$len_adj_n) = @_;
+    my ($percent,$intron_pos_sub,$len_adj_p,$len_adj_n,$exon_p,$exon_n) = @_;
 
     my $start = $intron_pos_sub - $len_adj_p + 1;
     my $end   = $intron_pos_sub + $len_adj_n;
     my $sub_percent  = [];
       @$sub_percent  = @$percent[$start..$end];
 
-    
     # Index to remove from percent
     my $to_rm_in_percent = [];
     my $corrected_len_adj_p = $len_adj_p;
@@ -4483,21 +4452,70 @@ sub AdjustLengthAdjIfGapInAllHomologous {
         my $corrected_idx = $idx + $start;
         push(@$to_rm_in_percent,$corrected_idx);
 
-        if ($idx < $len_adj_p) {
+        if ($idx <= $len_adj_p) {
             $corrected_len_adj_p--;
         } else {
             $corrected_len_adj_n--;
         }
     }
 
+    # Remove elements from an array based on their indexes and percentages.
     for my $idx (reverse sort @$to_rm_in_percent) {
         splice(@$percent, $idx, 1);
     }
 
-    my @ranges = map { [$_, $_] } @$to_rm_in_percent;
-    my $sub_ali_homo_new = $sub_ali_homo->remove_columns(@ranges);
+    # Correct Exon_p
+    if ($len_adj_p != $corrected_len_adj_p) {
+        my $isMinus = $exon_p->get_strand() ne '+' ? 1 : 0; 
+        my $diff    = ($len_adj_p - $corrected_len_adj_p) * 3;
+        
+        # Correct dna_end
+        my $dnaend        = $exon_p->get_dnaend();
+        my $corrected_end = !$isMinus ? $dnaend - $diff : $dnaend + $diff;
+           $exon_p->set_dnaend($corrected_end);
+        
+        # Correct ntsequence
+        my $ntsequence           = $exon_p->get_ntsequence();
+        my $corrected_ntsequence = substr($ntsequence,0,length($ntsequence) - $diff);
+           $exon_p->set_ntsequence($corrected_ntsequence);
+        
+        # Correct aasequence
+        my $aasequence           = $exon_p->get_aasequence();
+        my $corrected_aasequence = substr($aasequence,0,length($aasequence) - ($diff/3));
+           $exon_p->set_aasequence($corrected_aasequence);
 
-    return ($sub_ali_homo_new,$intron_pos_sub,$len_adj_p,$len_adj_n);
+        # Correct protend
+        my $protend           = $exon_p->get_protend();
+        my $corrected_protend = $protend - ($diff/3);
+           $exon_p->set_protend($corrected_protend);
+    }
+
+    # Correct Exon_n
+    if ($len_adj_n != $corrected_len_adj_p) {
+        my $isMinus = $exon_n->get_strand() ne '+' ? 1 : 0; 
+        my $diff    = ($len_adj_n - $corrected_len_adj_n) * 3;
+        
+        # Correct dna_start
+        my $dnastart        = $exon_n->get_dnastart();
+        my $corrected_start = !$isMinus ? $dnastart + $diff : $dnastart - $diff;
+           $exon_n->set_dnastart($corrected_start);
+        
+        # Correct ntsequence
+        my $ntsequence           = $exon_n->get_ntsequence();
+        my $corrected_ntsequence = substr($ntsequence,0,length($ntsequence) - $diff);
+           $exon_n->set_ntsequence($corrected_ntsequence);
+        
+        # Correct aasequence
+        my $aasequence           = $exon_n->get_aasequence();
+        my $corrected_aasequence = substr($aasequence,0,length($aasequence) - ($diff/3));
+           $exon_n->set_aasequence($corrected_aasequence);
+
+        # Correct protend
+        my $protstart         = $exon_n->get_protstart();
+        my $corrected_protstart = $protstart + ($diff/3);
+           $exon_p->set_protstart($corrected_protstart);
+    }
+    return ($intron_pos_sub,$corrected_len_adj_p,$corrected_len_adj_n);
 }
 
 
@@ -4510,7 +4528,6 @@ sub DefineSeqAndAliOfResearchExon {
       @$sub_percent  = @$percent[$start..$end];
     my $sub_align    = $sub_ali_homo->slice($start + 1, $end + 1);
 
-    # print Data::Dumper->Dump([$sub_percent,$sub_align], [qw(sub_percent sub_align)]);
     return ($sub_percent,$sub_align);
 }
 
