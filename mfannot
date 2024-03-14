@@ -3762,10 +3762,11 @@ sub AnnotateMiniExonsByHMM {
                next;
             }
 
-               ($IntronPosSub,$LenAdj_p,$LenAdj_n) = &AdjustLengthAdjIfGapInAllHomologous($Percent,$IntronPosSub,$LenAdj_p,$LenAdj_n,$Exon_p,$Exon_n);
+            next if $NbIntron < 2 && $LenAdj_f <= 2; # Initial annotation is considered to be true
+
+               ($IntronPosSub,$LenAdj_p,$LenAdj_n) = &AdjustLengthIfGapInAllHomologous($Percent,$IntronPosSub,$LenAdj_p,$LenAdj_n,$Exon_p,$Exon_n);
             my ($SubPercent,$ExonAli)              = &DefineSeqAndAliOfResearchExon($Percent,$SubAliHomo,$IntronPosSub,$LenAdj_p,$LenAdj_n);
             
-            next if $NbIntron < 2 && $LenAdj_f <= 2; # Initial annotation is considered to be true
             my ($Seq_p,$Seq_n) = &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"deconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
             if ($Seq_n eq "") {
               &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"reconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
@@ -4428,7 +4429,7 @@ sub AdjustExonsIntron {
 }
 
 # Adjust the length of adjustement if all pos in homologous are a gap
-sub AdjustLengthAdjIfGapInAllHomologous {
+sub AdjustLengthIfGapInAllHomologous {
     my ($percent,$intron_pos_sub,$len_adj_p,$len_adj_n,$exon_p,$exon_n) = @_;
 
     my $start = $intron_pos_sub - $len_adj_p + 1;
@@ -4491,7 +4492,7 @@ sub AdjustLengthAdjIfGapInAllHomologous {
     }
 
     # Correct Exon_n
-    if ($len_adj_n != $corrected_len_adj_p) {
+    if ($len_adj_n != $corrected_len_adj_n) {
         my $isMinus = $exon_n->get_strand() ne '+' ? 1 : 0; 
         my $diff    = ($len_adj_n - $corrected_len_adj_n) * 3;
         
@@ -4513,8 +4514,9 @@ sub AdjustLengthAdjIfGapInAllHomologous {
         # Correct protend
         my $protstart         = $exon_n->get_protstart();
         my $corrected_protstart = $protstart + ($diff/3);
-           $exon_p->set_protstart($corrected_protstart);
+           $exon_n->set_protstart($corrected_protstart);
     }
+
     return ($intron_pos_sub,$corrected_len_adj_p,$corrected_len_adj_n);
 }
 
