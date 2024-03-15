@@ -2962,7 +2962,6 @@ sub SortAndGroupC4Report {
     my ($ExonerateReoprts,$OV_authorized,$info) = @_;
     my $name           = $info->[0];
 
-
     my $grouped_reports      = [];
     foreach my $ER (@$ExonerateReoprts) {
         if ($ER->get_raw_score() >= 200) {
@@ -3011,38 +3010,46 @@ sub SortAndGroupC4Report {
     for (my $i = 0; ;) {
         last if !($i < scalar(@$grouped_reports));
         my $GR        = $grouped_reports->[$i];
-        my $GR_ini    = $GR->[0];
-        my $GR_fin    = $GR->[-1];
-        my $p_startGR = $GR_ini->get_query_start();
-        my $p_endGR   = $GR_fin->get_query_stop();
-        my $g_startGR = $GR_ini->get_target_start();
-        my $g_endGR   = $GR_fin->get_target_stop();
 
-        my $best_sol     = &DefineBestSol($grouped_reports,$p_startGR,$p_endGR,$g_startGR,$g_endGR,$OV_authorized,$i);
+        # Extract information about the first report
+        my $GR_ini          = $GR->[0];
+        my $protein_startGR = $GR_ini->get_query_start();
+        my $genomic_startGR = $GR_ini->get_target_start();
 
-        $i++ if !(defined($best_sol));
-        next if !(defined($best_sol));
+        # Extract information about the last report
+        my $GR_fin          = $GR->[-1];
+        my $protein_endGR   = $GR_fin->get_query_stop();
+        my $genomic_endGR   = $GR_fin->get_target_stop();
+
+        my $idx_best_sol     = &DefineIdxBestSol($grouped_reports,$protein_startGR,$protein_endGR,$genomic_startGR,$genomic_endGR,$OV_authorized,$i);
+
+        $i++ if !(defined($idx_best_sol));
+        next if !(defined($idx_best_sol));
 
         # Check if best solution of $i have for best solution $i
-        my $GR_bs        = $grouped_reports->[$best_sol];
-        my $GR_ini_bs    = $GR_bs->[0];
-        my $GR_fin_bs    = $GR_bs->[-1];
-        my $p_startGR_bs = $GR_ini_bs->get_query_start();
-        my $p_endGR_bs   = $GR_fin_bs->get_query_stop();
-        my $g_startGR_bs = $GR_ini_bs->get_target_start();
-        my $g_endGR_bs   = $GR_fin_bs->get_target_stop();
-        my $best_sol_bs  = &DefineBestSol($grouped_reports,$p_startGR_bs,$p_endGR_bs,$g_startGR_bs,$g_endGR_bs,$OV_authorized,$best_sol);
+        my $GR_bs              = $grouped_reports->[$idx_best_sol];
+        my $GR_ini_bs          = $GR_bs->[0];
+        my $GR_fin_bs          = $GR_bs->[-1];
+        my $protein_startGR_bs = $GR_ini_bs->get_query_start();
+        my $protein_endGR_bs   = $GR_fin_bs->get_query_stop();
+        my $genomic_startGR_bs = $GR_ini_bs->get_target_start();
+        my $genomic_endGR_bs   = $GR_fin_bs->get_target_stop();
+        my $idx_best_sol_bs    = &DefineIdxBestSol($grouped_reports,$protein_startGR_bs,$protein_endGR_bs,$genomic_startGR_bs,$genomic_endGR_bs,$OV_authorized,$idx_best_sol);
 
-        $i++ if $best_sol_bs != $i;
-        next if $best_sol_bs != $i;
-        my $len_GR_bs = scalar(@$GR_bs);
-        ($p_startGR < $p_startGR_bs ?
-                splice(@$GR,@$GR,0,@$GR_bs) # add $best_sol at end
-              : splice(@$GR,0,0,@$GR_bs));  # add $best_sol at begin
-        splice(@$grouped_reports,$best_sol,1);
+        $i++ if $idx_best_sol_bs != $i;
+        next if $idx_best_sol_bs != $i;
+
+        ($protein_startGR < $protein_startGR_bs ?
+                splice(@$GR,@$GR,0,@$GR_bs) # add best solution at end
+              : splice(@$GR,0,0,@$GR_bs));  # add best solution at begin
+        
+        # Remove best solution from the group
+        splice(@$grouped_reports,$idx_best_sol,1);
+        $i--; # We put 2 solutions together so we need to decrease $i
         next;
     }
 
+    # Sort the grouped reports by coverage
     my %group_len_covered = ();
     foreach my $groupref (@$grouped_reports) {
         my $covered = 0;
@@ -3083,34 +3090,36 @@ sub exonarate_found_transpliced {
     return $isTranspliced;
 }
 
-sub DefineBestSol {
-    my ($Group_ER_cp,$p_startGR,$p_endGR,$g_startGR,$g_endGR,$OV_authorized,$i) = @_;
+sub DefineIdxBestSol {
+    my ($Group_ER_second_group,$protein_startGR,$protein_endGR,$genomic_startGR,$genomic_endGR,$OV_authorized,$i) = @_;
 
-    my ($best_sol,$min_dist) = (undef,undef);
-    for (my $j = @$Group_ER_cp - 1; $j >= 0 ; $j--) {
-        # Def best solution if several solution ws found choose the closest in genome
+    my ($idx_best_solution,$min_dist) = (undef,undef);
+    for (my $j = @$Group_ER_second_group - 1; $j >= 0 ; $j--) {
+        # Def best solution if several solution was found choose the closest in genome
         next if $i == $j;
-        my $GR_ini_cp    = $Group_ER_cp->[$j]->[0];
-        my $GR_fin_cp    = $Group_ER_cp->[$j]->[-1];
-        my $p_startGR_cp = $GR_ini_cp->get_query_start();
-        my $p_endGR_cp   = $GR_fin_cp->get_query_stop;
-        my $g_startGR_cp = $GR_ini_cp->get_target_start();
-        my $g_endGR_cp   = $GR_fin_cp->get_target_stop();
+        my $GR_ini_second_group          = $Group_ER_second_group->[$j]->[0];
+        my $GR_fin_second_group          = $Group_ER_second_group->[$j]->[-1];
+        # Extract Range in protein coordinates
+        my $protein_startGR_second_group = $GR_ini_second_group->get_query_start();
+        my $protein_endGR_second_group   = $GR_fin_second_group->get_query_stop();
+        # Extract Range in genomic coordinates
+        my $genomic_startGR_second_group = $GR_ini_second_group->get_target_start();
+        my $genomic_endGR_second_group   = $GR_fin_second_group->get_target_stop();
 
-        if ($p_startGR < $p_startGR_cp) {
-            next if !($p_startGR_cp > $p_endGR || $p_endGR - $p_startGR_cp < $OV_authorized);
-            my $dist     = abs($g_endGR - $g_startGR_cp);
-               ($min_dist,$best_sol) = ($dist,$j) if !(defined($min_dist));
-               ($min_dist,$best_sol) = ( $dist < $min_dist ? ($dist, $j): ($min_dist, $best_sol));
+        if ($protein_startGR < $protein_startGR_second_group) {
+            next if    !($protein_startGR_second_group > $protein_endGR || $protein_endGR - $protein_startGR_second_group < $OV_authorized);
+            my $dist     = abs($genomic_endGR - $genomic_startGR_second_group);
+               ($min_dist,$idx_best_solution) = ($dist,$j) if !(defined($min_dist));
+               ($min_dist,$idx_best_solution) = ($dist < $min_dist ? ($dist, $j): ($min_dist, $idx_best_solution));
         }
-        elsif ($p_startGR > $p_startGR_cp) {
-            next if !($p_startGR > $p_endGR_cp || $p_endGR_cp - $p_startGR < $OV_authorized);
-            my $dist  = abs($g_endGR_cp - $g_startGR);
-               ($min_dist,$best_sol) = ($dist,$j) if !(defined($min_dist));
-               ($min_dist,$best_sol) = ( $dist < $min_dist ? ($dist, $j) : ($min_dist, $best_sol));
+        elsif ($protein_startGR > $protein_startGR_second_group) {
+            next if !($protein_startGR > $protein_endGR_second_group || $protein_endGR_second_group - $protein_startGR < $OV_authorized);
+            my $dist  = abs($genomic_endGR_second_group - $genomic_startGR);
+               ($min_dist,$idx_best_solution) = ($dist,$j) if !(defined($min_dist));
+               ($min_dist,$idx_best_solution) = ($dist < $min_dist ? ($dist, $j) : ($min_dist, $idx_best_solution));
         }
     }
-    return $best_sol;
+    return $idx_best_solution;
 }
 
 sub Create_alternative_prot {
