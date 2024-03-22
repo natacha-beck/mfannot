@@ -198,7 +198,7 @@ my $PATH = $ENV{"PATH"} || "";
 my @PATH = split(/:/, $PATH);
 
 my $HOME                    = $ENV{"HOME"};
-my $FLIPPATH                = &GetPath("flip");
+my $ESLPATH                 = &GetPath("esl-translate");
 my $MAKEBLASTDBPATH         = &GetPath("makeblastdb");
 my $BLASTPATH               = &GetPath("blastp");
 my $BLASTNPATH              = &GetPath("blastn");
@@ -448,15 +448,16 @@ my $step        = 1;
 # Core #
 if ($LVL_MOT != 1) {
 # Run the programm step by, to know the right step
-# Flip running, generate ORFS
-print "$step) Translate (flip)...\n";
+# Esl-translate running, generate ORFS
+print "$step) Translate (esl)...\n";
 $step += 1;
-&RunFlip;
+&RunEslTranslate;
 
 # Blast the flip result with the blast
-print "$step) Blast...\n";
+print "$step) Blast (vs esl-translate)...\n";
 $step += 1;
-&BlastFlipVSGene;
+&BlastEslTranslateVSGene;
+
 
 # Parse the blast result, create a flipblastprot object
 print "$step) Parse Blast Results...\n";
@@ -978,23 +979,15 @@ sub DefineNumberOfProcessor {
 # Subs forming the core of Mfannot  #
 #-----------------------------------#
 
-#------------------------#
-# Subs for running flip  #
-#------------------------#
+#---------------------------------#
+# Subs for running esl-translate  #
+#---------------------------------#
 
-sub RunFlip {
-    # This function run flip with the masterfile
-    # Flip is a program generating ORF
+sub RunEslTranslate {
     my $cwd  = cwd();  # Get current working directory name
-    chdir ("$TMPDIR"); # Need to change the temporary directory to run flip
 
-    # Just check if Flip outfiles exist here already, if so get rid of them
-    unlink("prot.lst") if (-e "prot.lst");
-    unlink("prot.src") if (-e "prot.src");
-    unlink("compl")    if (-e "compl");
-    unlink("uncompl")  if (-e "uncompl");
+    chdir ("$TMPDIR"); # Need to change the temporary directory to run esl-translate
 
-    # Create a local copy wit all the contig
     my $input_contigs = "$TMPDIR/contigs.fna";
     my $ofh = new IO::File ">$input_contigs"
         or die "Cannot write to temp file '$input_contigs': $!\n";  # in TMPDIR
@@ -1007,21 +1000,19 @@ sub RunFlip {
     }
     $ofh->close();
 
-    my $to_add  = $DEVIATION ne "" ?  "-d '$DEVIATION'" : "";
-    # -m With this switch, flip will translate the first codon of a protein by 'M' if the codon is a start codon
-    my $cmdflip = "$FLIPPATH $to_add -m -l $MINLENGTHORF -g $GENCODE $input_contigs > $TMPDIR/flip.output";
-
-    system("$cmdflip >/dev/null 2>/dev/null");
-    print "$cmdflip\n" if $DEBUG;
+    my $cmd = "$ESLPATH -c $GENCODE -l $MINLENGTHORF $input_contigs > $TMPDIR/esl-translate.output";
+    system("$cmd 2>/dev/null");
+    print "$cmd\n" if $DEBUG;
     chdir($cwd); # Changing back to the original directory
-} # End sub
+}
 
 #--------------------------#
 # Subs for running Blast   #
 #--------------------------#
-sub BlastFlipVSGene {
-    # It runs blast with the flip results against file containing genes
-    $BLASTOUTPUT     = $TMPDIR . "/blastoutput.xml";
+
+sub BlastEslTranslateVSGene {
+    # It runs blast with the esl-translate results against file containing genes
+    $BLASTOUTPUT     = $TMPDIR . "/blastoutput_esl.xml";
     my $file         = $LIB_FILE;                                # Undef should never happen in fact.
     my $escaped_file = $file;
        $escaped_file =~ s#'#'\\'#g;
@@ -1031,11 +1022,10 @@ sub BlastFlipVSGene {
     system($command);
 
     # RUN FOR BLAST : run blast with the db created and the flip results
-    my $cmdblast     = "nice -19 $BLASTPATH -outfmt 5 -matrix $MATRIX -db $TMPDIR/mf -query $TMPDIR/prot.lst -out $BLASTOUTPUT 2> $TMPDIR/blasterr_1.txt";
+    my $cmdblast     = "nice -19 $BLASTPATH -outfmt 5 -matrix $MATRIX -db $TMPDIR/mf -query $TMPDIR/esl-translate.output -out $BLASTOUTPUT 2> $TMPDIR/blasterr_2.txt";
     print "$cmdblast\n" if $DEBUG;
     system ($cmdblast);
 } # End sub
-
 
 #--------------------------------------------------#
 # Subs for parsing information from Blast results  #
@@ -1147,12 +1137,19 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
     my $rdesc = $iteration->Iteration_query_def() ||   # priority to iteration's value
                 $result->BlastOutput_query_def()  ||
                 "Unknown Query Description";
-    $rdesc =~ m/^\s*(\S+)/;
-    my $contigname = $1 || "Unknown contig name";
-    $contigname =~ s/;$//; # spurious semicolon introduced by flip
 
-    my ($strand, $start, $end) = ($rdesc =~ /(orig|compl).\s+(\d+)\s+to\s+(\d+)/);
-    $strand   = ($strand eq 'orig' ? 1 : -1);
+    my $contigname    = ($rdesc =~ m/source=(\w+)/) ? $1 : "Unknown contig name";
+    my $strand        = ($rdesc =~ m/frame=(\d+)/);
+       $strand        = $1 > 3 ? -1 : 1;
+    my ($start, $end) = ($rdesc =~ m/coords=(\d+)\.\.(\d+)/);
+
+    # Get the length of the contig
+    my $contig = $pirmaster->GetContigByName($contigname);
+    my $contig_length = length($contig->get_sequence());
+
+    if (($strand == 1 && $end <= $contig_length - 3) || ($strand == -1 && $end > 3)) {
+        $end += $strand * 3;
+    }
 
     my $hitslist = $iteration->Iteration_hits() || return;
     # If we have no match.
@@ -7081,7 +7078,6 @@ sub MakeListOfORFsToRM {
 
             # Remove an entry from the list of ORFs to annotate
             $ANNOT_STATS->{'Added'}->{$ORF_2->get_genename}->{'F'}--;
-            my $name = $ORF_2->get_genename();
             $AP_toRM->{$id_2}++;
         }
     }
@@ -8935,7 +8931,6 @@ sub AddAnnotToPirMaster {
     #  It means, force annot but this annotations doesn't seems to have an other copy
     my $name = $annot->get_genename();
        $name = $1 if $annot->get_startline() =~ m/(trn.\(.+\))/i;
-    $ANNOT_STATS->{'Added'}->{$name} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
     if ($annot->genename ne "comment") {
         if (!$ANNOT_STATS->{'Added'}->{$name}) {
             $ANNOT_STATS->{'Added'}->{$name} = {  'I' => 0, 'E' => 0, 'F' => 1, };
@@ -8943,7 +8938,6 @@ sub AddAnnotToPirMaster {
             $ANNOT_STATS->{'Added'}->{$name}->{'F'}++;
         }
     }
-
     push (@$annotations, $annot);
     return 1;
 }
