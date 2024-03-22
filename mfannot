@@ -1769,7 +1769,7 @@ sub AdjustStartByHMMForBLASTandExonerate {
 
     my $protein_sequence = scalar(@$introns) > 0 ? &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) :
                                                    &GetProteinForGeneWithoutIntrons($seq, $start, $end, $isMinus);
-    
+
     $hypprot->set_thisprot($protein_sequence);
 
     # If a frameshift is detected, we don't run HMM
@@ -3279,7 +3279,7 @@ sub CheckStopCodonInProtein {
         my $name = $hypprot->get_name();
         # print "-----------------------------------Hypprot name:", $name, "-----------------------------------\n";
 
-        
+
         my $seq     = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if scalar(@$introns) > 0;
         my $isMinus = ($hypprot->get_strand() == 1 ? 0 : 1);
 
@@ -3295,10 +3295,10 @@ sub CheckStopCodonInProtein {
 
             next if !$aa_seq && !$nt_seq;
             next if $aa_seq !~ /\*/; # No stop codon in this exon
-            
-            # Should be a special case 
+
+            # Should be a special case
             next if $i == scalar(@$exons) - 1; # We are in the last exon
-            &AdjustExonIntronInfoIfStopCodon($exon, $i, $introns, $aa_seq, $nt_seq, $isMinus);                
+            &AdjustExonIntronInfoIfStopCodon($exon, $i, $introns, $aa_seq, $nt_seq, $isMinus);
         }
     }
 }
@@ -3306,7 +3306,7 @@ sub CheckStopCodonInProtein {
 
 sub AdjustExonIntronInfoIfStopCodon {
     my ($exon, $i, $introns, $aa_seq, $nt_seq, $isMinus) = @_;
-    
+
     # Get the round of the middle of the sequence
     my $middle = int(length($aa_seq)/2);
 
@@ -3340,7 +3340,7 @@ sub AdjustExonIntronInfoIfStopCodon {
     #######################################################
     # Adjust exon start and end sequence                  #
     #######################################################
-    
+
     # # Adjust exon start
     my $new_nt_start    = !$isMinus ? $exon->get_dnastart() + ($last_stop_left_idx * 3)
                                     : $exon->get_dnastart() - ($last_stop_left_idx * 3);
@@ -3359,7 +3359,7 @@ sub AdjustExonIntronInfoIfStopCodon {
     # Adjust exon protstart
     my $new_prot_start      = $exon->get_protstart() + $last_stop_left_idx;
     $exon->set_protstart($new_prot_start);
-    
+
     # Adjust exon protend
     my $new_prot_end        = $exon->get_protstart + $first_stop_right_idx - $last_stop_left_idx - 1;
     $exon->set_protend($new_prot_end);
@@ -3395,19 +3395,19 @@ sub AdjustExonIntronInfoIfStopCodon {
 
 sub SimpleAdjustExonIntronInfoIfStopCodon_BK {
     my ($exon, $i, $introns, $aa_seq, $nt_seq, $first_stop, $last_stop, $isMinus) = @_;
-    
+
     my $is_right_side_stop = 1 if $first_stop > length($aa_seq)/2;
 
     # Adjust exon aa sequence
-    my $new_aa_seq = $is_right_side_stop ? substr($aa_seq, 0, $first_stop) : 
+    my $new_aa_seq = $is_right_side_stop ? substr($aa_seq, 0, $first_stop) :
                                            substr($aa_seq, $last_stop + 1);
     $exon->set_aasequence($new_aa_seq);
 
     # Adjust exon nt sequence
-    my $new_nt_seq = $is_right_side_stop ? substr($nt_seq, 0, (($first_stop * 3) + $exon->get_endingphase()) - 3) : 
+    my $new_nt_seq = $is_right_side_stop ? substr($nt_seq, 0, (($first_stop * 3) + $exon->get_endingphase()) - 3) :
                                            substr($nt_seq, (($last_stop * 3)     + $exon->get_endingphase()) + 3);
     $exon->set_ntsequence($new_nt_seq);
-    
+
     my $diff_nt_exon_length = length($new_nt_seq) - length($nt_seq);
     my $diff_aa_exon_length = length($aa_seq) - length($new_aa_seq);
 
@@ -3719,7 +3719,7 @@ sub AnnotateMiniExonsByHMM {
             my $UseSeq    = $isMinus ? "$ReverseSeq" : "$Seq";
             my $LenSeq    = length($Seq);
             my ($HypprotSeq,$IntronPosAli,$LenAli) = &DefineSeqOfHypprotAndPosOfIntronInAlignment($Align,$IntronPos,$hypprot->get_trimIndexFive(),$hypprot->get_trimIndexThree());
-            
+
             next if !$IntronPosAli;
             my $Exon_p = @$Exons[$i]   || next;
             my $Exon_n = @$Exons[$i+1] || next;
@@ -3766,7 +3766,7 @@ sub AnnotateMiniExonsByHMM {
 
                ($IntronPosSub,$LenAdj_p,$LenAdj_n) = &AdjustLengthIfGapInAllHomologous($Percent,$IntronPosSub,$LenAdj_p,$LenAdj_n,$Exon_p,$Exon_n);
             my ($SubPercent,$ExonAli)              = &DefineSeqAndAliOfResearchExon($Percent,$SubAliHomo,$IntronPosSub,$LenAdj_p,$LenAdj_n);
-            
+
             my ($Seq_p,$Seq_n) = &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"deconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
             if ($Seq_n eq "") {
               &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"reconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
@@ -4213,7 +4213,7 @@ sub DefAdjIntronByHMM {
 sub MakeSubAlignment {
     # In order to make sub-alignment
     my ($align,$hypprot_seq,$IntronPosAli,$PreviousExon,$NextExon,$PP,$AliSeq) = @_;
-    
+
     my ($PreviousExon_start,$PreviousExon_End) = ($PreviousExon->get_protstart(),$PreviousExon->get_protend());
     my ($NextExon_start,$NextExon_End)         = ($NextExon->get_protstart()    ,$NextExon->get_protend());
 
@@ -4467,19 +4467,19 @@ sub AdjustLengthIfGapInAllHomologous {
 
     # Correct Exon_p
     if ($len_adj_p != $corrected_len_adj_p) {
-        my $isMinus = $exon_p->get_strand() ne '+' ? 1 : 0; 
+        my $isMinus = $exon_p->get_strand() ne '+' ? 1 : 0;
         my $diff    = ($len_adj_p - $corrected_len_adj_p) * 3;
-        
+
         # Correct dna_end
         my $dnaend        = $exon_p->get_dnaend();
         my $corrected_end = !$isMinus ? $dnaend - $diff : $dnaend + $diff;
            $exon_p->set_dnaend($corrected_end);
-        
+
         # Correct ntsequence
         my $ntsequence           = $exon_p->get_ntsequence();
         my $corrected_ntsequence = substr($ntsequence,0,length($ntsequence) - $diff);
            $exon_p->set_ntsequence($corrected_ntsequence);
-        
+
         # Correct aasequence
         my $aasequence           = $exon_p->get_aasequence();
         my $corrected_aasequence = substr($aasequence,0,length($aasequence) - ($diff/3));
@@ -4493,19 +4493,19 @@ sub AdjustLengthIfGapInAllHomologous {
 
     # Correct Exon_n
     if ($len_adj_n != $corrected_len_adj_n) {
-        my $isMinus = $exon_n->get_strand() ne '+' ? 1 : 0; 
+        my $isMinus = $exon_n->get_strand() ne '+' ? 1 : 0;
         my $diff    = ($len_adj_n - $corrected_len_adj_n) * 3;
-        
+
         # Correct dna_start
         my $dnastart        = $exon_n->get_dnastart();
         my $corrected_start = !$isMinus ? $dnastart + $diff : $dnastart - $diff;
            $exon_n->set_dnastart($corrected_start);
-        
+
         # Correct ntsequence
         my $ntsequence           = $exon_n->get_ntsequence();
         my $corrected_ntsequence = substr($ntsequence,0,length($ntsequence) - $diff);
            $exon_n->set_ntsequence($corrected_ntsequence);
-        
+
         # Correct aasequence
         my $aasequence           = $exon_n->get_aasequence();
         my $corrected_aasequence = substr($aasequence,0,length($aasequence) - ($diff/3));
@@ -7078,6 +7078,10 @@ sub MakeListOfORFsToRM {
 
             next if $OV_len < 0;
             next if ($OV_autorized > ( $min_end - $max_start + 1));
+
+            # Remove an entry from the list of ORFs to annotate
+            $ANNOT_STATS->{'Added'}->{$ORF_2->get_genename}->{'F'}--;
+            my $name = $ORF_2->get_genename();
             $AP_toRM->{$id_2}++;
         }
     }
@@ -8932,6 +8936,14 @@ sub AddAnnotToPirMaster {
     my $name = $annot->get_genename();
        $name = $1 if $annot->get_startline() =~ m/(trn.\(.+\))/i;
     $ANNOT_STATS->{'Added'}->{$name} ||= {  'I' => 0, 'E' => 0, } if ($annot->genename ne "comment");
+    if ($annot->genename ne "comment") {
+        if (!$ANNOT_STATS->{'Added'}->{$name}) {
+            $ANNOT_STATS->{'Added'}->{$name} = {  'I' => 0, 'E' => 0, 'F' => 1, };
+        } else {
+            $ANNOT_STATS->{'Added'}->{$name}->{'F'}++;
+        }
+    }
+
     push (@$annotations, $annot);
     return 1;
 }
@@ -9437,6 +9449,7 @@ sub LogInfo {
     foreach my $genename (@added) {
         next if $genename !~ /^[^!]/;
         next if $genename =~ /comment/;
+        next if $added->{$genename}->{'F'} < 1;
         my($e,$i) = (($added->{$genename}->{'E'} || 0),($added->{$genename}->{'I'} || 0));
         $rep      = ";;     " if !$cnt;
         $rep     .= sprintf(" %-20s", ("$genename" . ($i >= 1 ? " ($i introns)" : "")));
