@@ -68,8 +68,8 @@ BEGIN {
   PirObject->LoadDataModel("MfAnnotExternalProgs");     # Support for execution of external programs
   PirObject->LoadDataModel("AnnotPairCollection");      # Also for external programs.
   PirObject->LoadDataModel("ExonerateOutput");          # Parser for Exonerate output
-  PirObject->LoadDataModel("FlipBlastProt");            # Objects for storing ORFs predicted by Flip and kept with blast
-  PirObject->LoadDataModel("HypProt");                  # Hypothetical protein : We believe its a protein after flip.
+  PirObject->LoadDataModel("EslBlastProt");             # Objects for storing ORFs predicted by esl-translate and kept with blast
+  PirObject->LoadDataModel("HypProt");                  # Hypothetical protein : We believe its a protein after esl.
   PirObject->LoadDataModel("HypFusion");                # Contain information about gene fusion
   PirObject->LoadDataModel("Option");                   # A module for options gestion
   PirObject->LoadDataModel("EmptyOrf");                 # Object containing Orfs having no corresponding genes
@@ -138,8 +138,8 @@ my $USER = getpwuid($<) or getlogin or die "Can't find USER from environment!\n"
 
 # Command-line args (first, original program)
 my $ANNOT_STATS         = {'Added' => {} };        # Use for create the header.
-my $FLIPBLASTPROTS      = [];                      # Array containing the Proteins predicted by Blast and Flip
-my $HYPPROTS            = [];                      # Array containing the Proteins predicted by Blast and Flip and reprocessed after
+my $ESLBLASTPROTS       = [];                      # Array containing the Proteins predicted by Blast and Esl-translate
+my $HYPPROTS            = [];                      # Array containing the Proteins predicted by Blast and Esl-translate and reprocessed after
 my $ENDO_BY_CG          = {};                      # Hash with endonuclease by contig
 my $EMPTYORFS           = [];                      # Array containing ORFs having no corresponding genes
 my $TRI_NT_START_COUNT  = {};                      # Hash with count of tri_nt start.
@@ -169,7 +169,7 @@ my $SHORT_RANGE_START_UPSTREAM   = 2;           # Short range for upstream start
 my $SHORT_RANGE_START_DOWNSTREAM = 1;           # Short range for downstream start
 my $RANGE_START_UPSTREAM   = 10;                # Range for upstream start
 my $RANGE_START_DOWNSTREAM = 3;                 # Range for downstream start
-my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with flip
+my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with esl
 my $MAXLENGTHFORGROUPINGORF;                    # Maximum size of a gap between 2 ORf. If 2 same ORF
 my $MAXLENINTRONS;                              # Max intron size for exonerate.
 my $MINLENEMPTYORF;                             # Minimum length for ORF empty orfs (non corresponding orfs)
@@ -409,7 +409,7 @@ print $LOG_F  "----------------------------------\n",
 print "File used for motif finding is '$MOTFILE'\n" if $LVL_MOT != 0;
 
 $options  = "Options : \n";                  # Options & parameters used for the blast
-$options .= "Minimum size ORF, for flip running $MINLENGTHORF\n";
+$options .= "Minimum size ORF, for esl-translate running $MINLENGTHORF\n";
 $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
 $options .= "Minimum exon size : $MINEXONSIZE\n";
 $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
@@ -453,13 +453,13 @@ print "$step) Translate (esl)...\n";
 $step += 1;
 &RunEslTranslate;
 
-# Blast the flip result with the blast
+# Blast the esl-translate result with the blast
 print "$step) Blast (vs esl-translate)...\n";
 $step += 1;
 &BlastEslTranslateVSGene;
 
 
-# Parse the blast result, create a flipblastprot object
+# Parse the blast result, create a eslblastprot object
 print "$step) Parse Blast Results...\n";
 $step += 1;
 &ParseInformationFromBlastResult;
@@ -472,7 +472,7 @@ $step += 1;
 # Create hypothetical proteins
 print "$step) Annotate genes w/o introns...\n";
 $step += 1;
-&FillHYPPROTSArrayWithFLIPBLASTPROTSArray;
+&FillHYPPROTSArrayWithESLBLASTPROTSArray;
 
 # Annotation of all introns
 if ($LVL_INTRON == 2 ) {
@@ -548,7 +548,7 @@ print "\n----------------------------------\n",
       "----------------------------------\n";
 
 # Unreferencing
-undef $FLIPBLASTPROTS;
+undef $ESLBLASTPROTS;
 undef $HYPPROTS;
 undef $EMPTYORFS;
 
@@ -689,7 +689,7 @@ sub GetOptions {
     $LVL_INTRON              = $option->lvlintron;         # Indicate level of intron identification (0,1 or 2).
     die "Option --lvlintron must be 1 or 2\n" if $LVL_INTRON < 1 || $LVL_INTRON > 2;
     $BLASTEVALUECUTOFF       = $option->blast2;            # Cutoff value for the blast
-    $MINLENGTHORF            = $option->flip2;             # This is the minimum length for creating an ORF with flip
+    $MINLENGTHORF            = $option->esl2;             # This is the minimum length for creating an ORF with esl-translate
     $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;     # Minimum size of a gap between 2 ORf. If 2 same ORF
     $MAXLENINTRONS           = $option->maxintronsize;     # Max intron size for exonerate.
     $MINLENEMPTYORF          = $option->minlenemptyorf;    # Minimum length for ORF empty orfs (non corresponding orfs)
@@ -1021,7 +1021,7 @@ sub BlastEslTranslateVSGene {
     print "$command\n" if $DEBUG;
     system($command);
 
-    # RUN FOR BLAST : run blast with the db created and the flip results
+    # RUN FOR BLAST : run blast with the db created and the esl-translate results
     my $cmdblast     = "nice -19 $BLASTPATH -outfmt 5 -matrix $MATRIX -db $TMPDIR/mf -query $TMPDIR/esl-translate.output -out $BLASTOUTPUT 2> $TMPDIR/blasterr_2.txt";
     print "$cmdblast\n" if $DEBUG;
     system ($cmdblast);
@@ -1045,13 +1045,13 @@ sub ParseInformationFromBlastResult {
     while (my $result = PirObject::BlastOutput->FileHandleToObject($searchfh)) {
         my $iterations = $result->BlastOutput_iterations() || next;
         foreach my $iteration (@$iterations) {
-            &FillFLIPBLASTPROTArrayFromBlastResult($type,$result,$iteration);
+            &FillESLBLASTPROTArrayFromBlastResult($type,$result,$iteration);
         }
     }
     $searchfh->close();
 
-    foreach my $flipblastprot (@$FLIPBLASTPROTS) {
-        my $homologous = $flipblastprot->homologous();
+    foreach my $eslblastprot (@$ESLBLASTPROTS) {
+        my $homologous = $eslblastprot->homologous();
         my @sorted = sort {
             &CompareHighPrecisionFloats($a->get_evalue(),$b->get_evalue());
         } @$homologous;
@@ -1065,7 +1065,7 @@ sub ParseInformationFromBlastResult {
             my $ident = $similar->get_similarprot();
             push(@best_homologous,$similar) unless ($already_here{$ident}++);
         }
-        $flipblastprot->set_homologous( \ @best_homologous );
+        $eslblastprot->set_homologous( \ @best_homologous );
     }
 } # End sub
 
@@ -1127,7 +1127,7 @@ sub CompareHighPrecisionFloats {
     return ($xman <=> $yman);                    # $x and $y have same EXP, so compare mantissas
 }
 
-sub FillFLIPBLASTPROTArrayFromBlastResult {
+sub FillESLBLASTPROTArrayFromBlastResult {
     my $type      = shift; # 'DNA' or 'PROT'
     my $result    = shift; # An object implementing PirObject::BlastOutput
     my $iteration = shift; # An object implementing PirObject::BlastOutput::Iteration
@@ -1305,26 +1305,26 @@ sub FillFLIPBLASTPROTArrayFromBlastResult {
         my $start_bl      = ($strand == 1 ? min(@start_b) : max(@start_b));
         push (@$newstartblast, $start_bl);
 
-        my $newflipblastprot = &GetFlipBlastProtByNameAndContigName($hypprotein, $contigname);
+        my $neweslblastprot = &GetEslBlastProtByNameAndContigName($hypprotein, $contigname);
 
-        # If we can't find it, create it once, and push it on @$FLIPBLASTPROTS
-        if (! defined ($newflipblastprot)) {
-            $newflipblastprot = new PirObject::FlipBlastProt (   name           => $hypprotein, # First we create the flipblast prot
+        # If we can't find it, create it once, and push it on @$ESLBLASTPROTS
+        if (! defined ($neweslblastprot)) {
+            $neweslblastprot = new PirObject::EslBlastProt (     name           => $hypprotein, # First we create the eslblast prot
                                                                  contigname     => $contigname,
                                                                  origine        => $origine,
                                                                  orfs           => [],
                                                                  homologous     => []);
             if ($hypfusiongene != 0) {
-                my $index = &FindIndexOfGeneFusion($start,$end,$FLIPBLASTPROTS);
-                @$FLIPBLASTPROTS[$index]->set_hypfusiongene($hypprotein);
-                $newflipblastprot->set_hypfusiongene(@$FLIPBLASTPROTS[$index]->get_name());
+                my $index = &FindIndexOfGeneFusion($start,$end,$ESLBLASTPROTS);
+                @$ESLBLASTPROTS[$index]->set_hypfusiongene($hypprotein);
+                $neweslblastprot->set_hypfusiongene(@$ESLBLASTPROTS[$index]->get_name());
             }
-            push (@$FLIPBLASTPROTS, $newflipblastprot);
+            push (@$ESLBLASTPROTS, $neweslblastprot);
         }
         $hypfusiongene++;
 
-        my $ref_orf_array        = $newflipblastprot->get_orfs();
-        my $ref_homologous_array = $newflipblastprot->get_homologous();
+        my $ref_orf_array        = $neweslblastprot->get_orfs();
+        my $ref_homologous_array = $neweslblastprot->get_homologous();
         push (@$ref_orf_array, $neworf);    #    And we just add a new orf
         my $homo = $homo_hash->{$hypprotein};
         push (@$ref_homologous_array, @$homo);
@@ -1351,12 +1351,12 @@ sub TakeProteinFromPepfile {
     return ">$description\n" . $protein;
 } # End sub
 
-sub GetFlipBlastProtByNameAndContigName {
-    # This function gives a FlipBlastProt with his name and contig name
-    my $name       = shift;  #    This the name of the GetFlipBlastProt
-    my $contigname = shift;  #    This is the contigname of the FlipBlastProt
+sub GetEslBlastProtByNameAndContigName {
+    # This function gives a EslBlastProt with his name and contig name
+    my $name       = shift;  #    This the name of the GetEslBlastProt
+    my $contigname = shift;  #    This is the contigname of the EslBlastProt
 
-    foreach my $result (@$FLIPBLASTPROTS) {
+    foreach my $result (@$ESLBLASTPROTS) {
          return $result if ($result->name eq $name and $result->contigname eq $contigname);
     }
     return undef; # In the case where any object has been found
@@ -1392,7 +1392,7 @@ sub FindIndexOfGeneFusion {
 #      information in order to run Exonerate                #
 #     - Else indicate a potential frameshift                #
 #                                                           #
-# Finally remove protein from @$FLIPBLASTPROTS if we have   #
+# Finally remove protein from @$ESLBLASTPROTS if we have   #
 # no information for run Exonerate                          #
 #                                                           #
 #-----------------------------------------------------------#
@@ -1401,15 +1401,15 @@ sub SelectProteinForExo {
     # This function is create in order to select the protein for run Exonerate or not
     my $compt = 0;
     my @index;
-    foreach my $flipblastprot (@$FLIPBLASTPROTS) {
-        my $name           = $flipblastprot->get_name();
-        my $contigname     = $flipblastprot->get_contigname();
-        my $orfs           = $flipblastprot->get_orfs();
-        my $homologous     = $flipblastprot->get_homologous();
-        my $genefusionname = $flipblastprot->get_hypfusiongene();
-        my $origine        = $flipblastprot->get_origine();
+    foreach my $eslblastprot (@$ESLBLASTPROTS) {
+        my $name           = $eslblastprot->get_name();
+        my $contigname     = $eslblastprot->get_contigname();
+        my $orfs           = $eslblastprot->get_orfs();
+        my $homologous     = $eslblastprot->get_homologous();
+        my $genefusionname = $eslblastprot->get_hypfusiongene();
+        my $origine        = $eslblastprot->get_origine();
         my $number_orfs    = scalar (@$orfs);
-        my %strand;  # Hashtable with the number of each strand for one flipblastprot
+        my %strand;  # Hashtable with the number of each strand for one eslblastprot
 
         next if ($number_orfs < 1); # Impossible but ..........
 
@@ -1476,14 +1476,14 @@ sub SelectProteinForExo {
                         push(@index, $compt);
                     }
                     else {
-                       $flipblastprot->set_frameshift(1);
+                       $eslblastprot->set_frameshift(1);
                        print "   Potential frameshift in $name\n";
                     }
                 } # End for $i
             } # End elsif
         } # End if
         $compt++;
-    } # End foreach $flipblastprot
+    } # End foreach $eslblastprot
 
     # In order to run exonerate only one time foreach protein
     my %index_deja_vu = ();
@@ -1502,9 +1502,9 @@ sub SelectProteinForExo {
      @PROT_FOR_EXONERATE = @prot_uni;
      @index_uni = sort {$b <=> $a} @index_uni;
 
-     # In order to remove the protein of flipblastprot when we run Exonerate
+     # In order to remove the protein of eslblastprot when we run Exonerate
      for (my $i=0; $i < @index_uni; $i++) {
-         splice(@$FLIPBLASTPROTS,$index_uni[$i],1);
+         splice(@$ESLBLASTPROTS,$index_uni[$i],1);
      }
 } # End sub
 
@@ -1514,21 +1514,21 @@ sub SelectProteinForExo {
 
 #-----------------------------------------------------------#
 # This function fill the HYPPROTS array (array of           #
-# hypothetical proteins with FLIPBLASTPROTS array           #
+# hypothetical proteins with ESLBLASTPROTS array           #
 # (array of ORF and hsp)                                    #
 #-----------------------------------------------------------#
 
-sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
+sub FillHYPPROTSArrayWithESLBLASTPROTSArray {
 
     # This is mainly the algorithm given by Franz
-    foreach my $flipblastprot (@$FLIPBLASTPROTS) {        # For each flip blast protein
-        my $name           = $flipblastprot->get_name();
-        my $contigname     = $flipblastprot->get_contigname();
-        my $orfs           = $flipblastprot->get_orfs();
-        my $namefusiongene = $flipblastprot->get_hypfusiongene() || undef;
-        my $homologous     = $flipblastprot->get_homologous()    || undef;
-        my $frameshift     = $flipblastprot->get_frameshift()    || undef;
-        my $origine        = $flipblastprot->get_origine()    || undef;
+    foreach my $eslblastprot (@$ESLBLASTPROTS) {        # For each esl blast protein
+        my $name           = $eslblastprot->get_name();
+        my $contigname     = $eslblastprot->get_contigname();
+        my $orfs           = $eslblastprot->get_orfs();
+        my $namefusiongene = $eslblastprot->get_hypfusiongene() || undef;
+        my $homologous     = $eslblastprot->get_homologous()    || undef;
+        my $frameshift     = $eslblastprot->get_frameshift()    || undef;
+        my $origine        = $eslblastprot->get_origine()    || undef;
         my $numberorfs     = scalar (@$orfs);
 
         next if ($numberorfs < 1); # Impossible but ..........
@@ -1734,7 +1734,7 @@ sub FillHYPPROTSArrayWithFLIPBLASTPROTSArray {
         } else {
             push (@$HYPPROTS,  $newhypprot);
         }
-    } # End for each Flip Blast Prot
+    } # End for each Esl-translate Blast Prot
 } # End sub
 
 # This function is used to adjust the start of the protein by using HMM
@@ -3951,7 +3951,7 @@ sub RunHMMSearchForMiniEx {
     return [] if $i == 0;
 
     my $FileRes = "${ShortName}_z$z.res";
-    my $cmd = "nice -19 $HMMSEARCHPATH -o $FileRes $prothmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH --notextw -o $FileRes $prothmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -5069,7 +5069,7 @@ sub RunHMMForeachSplice {
 sub RunHMMSearchForSplice {
     my ($FileRes,$hmm,$FastaName) = @_;
 
-    my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -o $FileRes $hmm  $FastaName";
+    my $cmd = "nice -19 $HMMSEARCHPATH --notextw --noali --max -o $FileRes $hmm  $FastaName";
     print "\n$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd");
@@ -7454,7 +7454,7 @@ sub choice_orf {
             print $ORFFILE $orf_seq;
             $ORFFILE->close();
 
-            # RUN FOR BLAST : run blast with the db created and the flip results
+            # RUN FOR BLAST : run blast with the db created and the esl results
             my $cmdblast = "nice -19 $BLASTNPATH -outfmt 5 -db $TMPDIR/mf_intronic_orf -query $name_of_file -out $output 2> $TMPDIR/blasterr_1.txt";
             print "$cmdblast\n" if $DEBUG;
             my $resblast = system ($cmdblast);
@@ -7703,13 +7703,15 @@ sub GetORFForLowConservedGenes {
     mkdir($subdir) if !(-d $subdir);
 
     # Define file_name
-    my $input_path  = "$TMPDIR/Contigs/$name.fna";
-    my $output_path = "$subdir/$name.orf";
+    my $input_contig = "$TMPDIR/Contigs/$name.fna";
+    my $output_path  = "$subdir/$name.orf";
 
     my $cwd = getcwd();
     chdir("$TMPDIR");
 
-    my $cmd = "$GETORFPATH $input_path -table $GENCODE -outseq $output_path -minsize $MINLENENDO";
+    # Use esl-translate to get the ORF
+    # my $cmd = "$GETORFPATH $input_path -table $GENCODE -outseq $output_path -minsize $MINLENENDO";
+    my $cmd = "$ESLPATH -c $GENCODE -l $MINLENGTHORF $input_contig > $output_path";
     print "$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd >/dev/null 2>/dev/null");
@@ -7780,7 +7782,7 @@ sub RunHMMSearchForLowConservedGenes {
       my $hmmFile = (-f "$HMM_model_path/$prot.hmm") ? "$HMM_model_path/$prot.hmm" : "$HMM_model_path/${prot}$add.hmm";
 
       my $FileRes .= $add eq "" ? "$ResDir/$prot" :"$ResDir/${prot}$add" ;
-      my $cmd = "nice -19 $HMMSEARCHPATH --noali --max -E 0.0001 --domE 0.0001 -o $FileRes $hmmFile $OrfFile";
+      my $cmd = "nice -19 $HMMSEARCHPATH --notextw --noali --max -E 0.0001 --domE 0.0001 -o $FileRes $hmmFile $OrfFile";
       print "$cmd\n" if $DEBUG;
 
       my $resultat = system("$cmd >/dev/null 2>/dev/null");
