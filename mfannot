@@ -7714,7 +7714,7 @@ sub GetORFForLowConservedGenes {
     my $cmd = "$ESLPATH -c $GENCODE -l $MINLENGTHORF $input_contig > $output_path";
     print "$cmd\n" if $DEBUG;
 
-    my $resultat = system("$cmd >/dev/null 2>/dev/null");
+    my $resultat = system("$cmd 2>/dev/null");
     my $hascoredump = ($resultat & 128) >> 7;  # 0 if no core dump, 1 if core dump
     my $signal      = $resultat & 127;  # SIGNAL received by subprocess, from 0 to 127;
     my $returncode  = $resultat >> 8;   # exit status of subprogram
