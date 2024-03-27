@@ -2888,7 +2888,7 @@ sub RunExonerate {
         or die "Internal error: can't find contig named '$contigname'.\n";
     my $dna_seq = $contig->get_sequence();
        $dna_seq = uc($dna_seq);
-    my $seq     = ">sequence\n$dna_seq";
+    my $seq     = ">$contigname\n$dna_seq";
 
     my $protein_length = 0;
     my @tab_prot = split(/\n/, $protein);  # check this, it may not work properly
@@ -2915,6 +2915,7 @@ sub RunExonerate {
 
     # Create genome for exonerate
     if (! -f $input_contig) {
+        mkdir("$TMPDIR/Contigs",0700) or die "Error: can't create working directory '$TMPDIR/Contigs': $!\n" if ! -d "$TMPDIR/Contigs";
         my $FH = new IO::File ">$input_contig" or die "Impossible to open $input_contig\n";
         print $FH $seq, "\n";
         $FH->close() or die "Impossible to close $input_contig\n";
@@ -4546,8 +4547,7 @@ sub LocateIntrons {
     my $name_of_file      = "$TMPDIR/Intron/$name.$flag.fasta";
     my $outputfile_prefix = "$TMPDIR/Intron/$name.$flag";
 
-    die "The file $name_of_file already exist"
-        if (-e $name_of_file);
+    return if (-e $name_of_file);
 
     # Open the file
     my $intron_file = new IO::File ">$name_of_file" or die "Impossible to open $name_of_file\n";
@@ -5809,7 +5809,6 @@ sub CreateContigFile {
         print $CF ">$name\n$seq\n";
         $CF->close();
     }
-
 }
 
 sub ExecuteExternalProgram {
@@ -8555,7 +8554,7 @@ sub CreateAnnotCommentForHMM {
     my $ori  = $tab_name[1] || "";
     my $description        = $resume->get_Description();
     # Extract direction from description in `frame`
-    my ($contigname, $strand, $start_orf, $end_orf) = &ExtractInfoFromEslDescription($description, $pirmaster);
+    my ($contigname_b, $strand, $start_orf, $end_orf) = &ExtractInfoFromEslDescription($description, $pirmaster);
     my $direction          = $strand != 1 ? "<==" : "==>";
     my $isMinus            = $direction eq "==>" ? 0 : 1;
 
