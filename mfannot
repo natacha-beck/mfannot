@@ -170,6 +170,7 @@ my $SHORT_RANGE_START_DOWNSTREAM = 1;           # Short range for downstream sta
 my $RANGE_START_UPSTREAM   = 10;                # Range for upstream start
 my $RANGE_START_DOWNSTREAM = 3;                 # Range for downstream start
 my $MINLENGTHORF;                               # This is the minimum length for creating an ORF with esl
+my $ESLSTRAND;                                  # Strand for esl-translate (watson or crick)
 my $MAXLENGTHFORGROUPINGORF;                    # Maximum size of a gap between 2 ORf. If 2 same ORF
 my $MAXLENINTRONS;                              # Max intron size for exonerate.
 my $MINLENEMPTYORF;                             # Minimum length for ORF empty orfs (non corresponding orfs)
@@ -208,7 +209,6 @@ my $HMMBUILDPATH            = &GetPath("hmmbuild");
 my $HMMALIGNPATH            = &GetPath("hmmalign");
 my $HMMSEARCHPATH           = &GetPath("hmmsearch");
 my $EXONERATEPATH           = &GetPath("exonerate");
-my $GETORFPATH              = &GetPath("getorf");
 my $MF2SQNPATH              = &GetPath("mf2sqn");
 my $ASN2GBPATH              = &GetPath("asn2gb");
 
@@ -410,6 +410,7 @@ print "File used for motif finding is '$MOTFILE'\n" if $LVL_MOT != 0;
 
 $options  = "Options : \n";                  # Options & parameters used for the blast
 $options .= "Minimum size ORF, for esl-translate running $MINLENGTHORF\n";
+$options .= "Strand for esl-translate : $ESLSTRAND\n";
 $options .= "Blast e-value cutoff : $BLASTEVALUECUTOFF\n";
 $options .= "Minimum exon size : $MINEXONSIZE\n";
 $options .= "Maximum intron size : $MAXLENGTHFORGROUPINGORF\n";
@@ -689,7 +690,8 @@ sub GetOptions {
     $LVL_INTRON              = $option->lvlintron;         # Indicate level of intron identification (0,1 or 2).
     die "Option --lvlintron must be 1 or 2\n" if $LVL_INTRON < 1 || $LVL_INTRON > 2;
     $BLASTEVALUECUTOFF       = $option->blast2;            # Cutoff value for the blast
-    $MINLENGTHORF            = $option->esl2;             # This is the minimum length for creating an ORF with esl-translate
+    $MINLENGTHORF            = $option->esl2;              # This is the minimum length for creating an ORF with esl-translate
+    $ESLSTRAND               = $option->eslstrand;            # Strand for esl-translate (watson or crick)
     $MAXLENGTHFORGROUPINGORF = $option->maxintronsize;     # Minimum size of a gap between 2 ORf. If 2 same ORF
     $MAXLENINTRONS           = $option->maxintronsize;     # Max intron size for exonerate.
     $MINLENEMPTYORF          = $option->minlenemptyorf;    # Minimum length for ORF empty orfs (non corresponding orfs)
@@ -1000,7 +1002,9 @@ sub RunEslTranslate {
     }
     $ofh->close();
 
-    my $cmd = "$ESLPATH -c $GENCODE -l $MINLENGTHORF $input_contigs > $TMPDIR/esl-translate.output";
+    my $extra_options = "";
+    $extra_options   .= " --$ESLSTRAND" if ($ESLSTRAND eq "watson" || $ESLSTRAND eq "crick");
+    my $cmd = "$ESLPATH -c $GENCODE $extra_options -l $MINLENGTHORF $input_contigs > $TMPDIR/esl-translate.output";
     system("$cmd 2>/dev/null");
     print "$cmd\n" if $DEBUG;
     chdir($cwd); # Changing back to the original directory
@@ -1139,7 +1143,7 @@ sub FillESLBLASTPROTArrayFromBlastResult {
                 $result->BlastOutput_query_def()  ||
                 "Unknown Query Description";
 
-    my ($contigname, $strand, $start, $end) = &ExtractInfoFromEslDescription($rdesc, $pirmaster);
+    my ($contigname, $strand, $start, $end) = &ExtractInfoFromEslDescriptionOrIdOrf($rdesc, $pirmaster);
 
     my $hitslist = $iteration->Iteration_hits() || return;
     # If we have no match.
@@ -1902,8 +1906,10 @@ sub AdjustStartAndEndByHMMForHMM {
     my $direction           = $annot->get_direction();
     my $isMinus             = $direction eq "==>" ? 0 : 1;
     my $start               = $annot->get_SimiStart();
-    my ($StartOrf,$EndOrf)  = ($1,$2) if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
-    my $end                 = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
+    my $idORF               = $annot->get_IdORF();
+
+    my ($contigname, $strand, $StartOrf, $EndOrf)  = &ExtractInfoFromEslDescriptionOrIdOrf($idORF,$pirmaster);
+    my $end                 = $EndOrf;
 
     my $hmm_matches_comment = &HMMmatchComment($annot);
 
@@ -5940,7 +5946,7 @@ sub ReconstructFullRNA {
 
         next if scalar(@$rm_annot_who_overlap_plus) != 0 || scalar(@$rm_annot_who_overlap_minus) != 0;
 
-        # Check which part is the first one.YYYY
+        # Check which part is the first one.
         my $add_to_plus  = "";
         my $add_to_minus = "";
         if (keys( %$plus_annots) > 0 && keys( %$minus_annots) > 0) {
@@ -7699,8 +7705,9 @@ sub GetORFForLowConservedGenes {
     chdir("$TMPDIR");
 
     # Use esl-translate to get the ORF
-    # my $cmd = "$GETORFPATH $input_path -table $GENCODE -outseq $output_path -minsize $MINLENENDO";
-    my $cmd = "$ESLPATH -c $GENCODE -l $MINLENGTHORF $input_contig > $output_path";
+    my $extra_options = "";
+    $extra_options   .= " --$ESLSTRAND" if ($ESLSTRAND eq "watson" || $ESLSTRAND eq "crick");
+    my $cmd = "$ESLPATH -c $GENCODE $extra_options -l $MINLENGTHORF $input_contig > $output_path";
     print "$cmd\n" if $DEBUG;
 
     my $resultat = system("$cmd 2>/dev/null");
@@ -7889,7 +7896,6 @@ sub CreateAllHMMAnnot {
             foreach my $key (sort{ $alignments->{$a}->{aliFrom} <=> $alignments->{$b}->{aliFrom}} keys %$alignments) {
                 my $ali = $alignments->{$key};
                 my $annot = &CreateAnnotCommentForHMM($resume,$ali,$Res,$contigname,$both);
-                my $idORF = $annot->get_IdORF();
                 $annot->set_HMMlen($QueryLen);
                 $annots->{$key} = $annot;
              }
@@ -7924,13 +7930,12 @@ sub RemoveFalseIntrons {
             # research of intron was not already done
             if ($LVL_INTRON == 1) {
                 my $description        = $resume->get_Description();
-                print "--------->Description: $description<---------\n";
-                my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+                my ($contigname,$strand,$StartOrf,$EndOrf) = &ExtractInfoFromEslDescriptionOrIdOrf($description,$pirmaster);
+                my $direction          = $strand != 1 ? "<==" : "==>";
                 my $isMinus            = $direction eq "==>" ? 0 : 1;
-                my ($start_orf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
                 my $annot = new PirObject::AnnotPair( type      => "C",
                                                       genename  => "ORF",
-                                                      startpos  => $start_orf,
+                                                      startpos  => $StartOrf,
                                                       endpos    => $EndOrf,
                                                       direction => $direction,
                                                       startline => "",
@@ -8009,7 +8014,8 @@ sub GapsBetweemHMMMatches {
         my ($SimiStart,$SimiEnd) = &GetSimilarityPos($resume,$ali);
 
         my $description          = $resume->get_Description();
-        my $direction            = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
+        my ($contigname,$strand,$StartOrf,$EndOrf) = &ExtractInfoFromEslDescriptionOrIdOrf($description,$pirmaster);
+        my $direction            = $strand != 1 ? "<==" : "==>";
 
         push(@$start_end_dir,[$SimiStart,$SimiEnd,$direction]);
     }
@@ -8161,8 +8167,11 @@ sub CheckForDuplicate {
 sub CheckIfHMMERFindADuplicate {
     my ($resume1,$resume2,$OrfFile) = @_;
 
-    my $isMinus_resume1 = $resume1->get_Description() !~ m/\(REVERSE SENSE\)/ ? 0 : 1;
-    my $isMinus_resume2 = $resume2->get_Description() !~ m/\(REVERSE SENSE\)/ ? 0 : 1;
+    my ($contigname_1,$strand_1,$StartOrf_1,$EndOrf_1) = &ExtractInfoFromEslDescriptionOrIdOrf($resume1->get_Description(),$pirmaster);
+    my $isMinus_resume1 = $strand_1 != 1 ? 1 : 0;
+
+    my ($contigname_2,$strand_2,$StartOrf_2,$EndOrf_2) = &ExtractInfoFromEslDescriptionOrIdOrf($resume2->get_Description(),$pirmaster);
+    my $isMinus_resume2 = $strand_2 != 1 ? 1 : 0;
 
     # If res1 and 2 is in same strand no duplicate.
     return 0 if $isMinus_resume1 == $isMinus_resume2;
@@ -8483,7 +8492,8 @@ sub FindStartAndStopForComplexGeneIdByHMM {
     my ($annot,$tab_exons,$OrfFile,$seq) = @_;
 
     # Change endpos
-    my $EndOrf    = $1 if $tab_exons->[-1]->get_IdORF() =~ m/\[\s*\d+\s*-\s*(\d+)\s*\]/;
+    # my $EndOrf    = $1 if $tab_exons->[-1]->get_IdORF() =~ m/\[\s*\d+\s*-\s*(\d+)\s*\]/;
+    my ($contigname, $strand, $StartOrf, $EndOrf) = &ExtractInfoFromEslDescriptionOrIdOrf($annot->get_IdORF(), $pirmaster);
     my $direction = $annot->get_direction();
     my $isMinus   = $direction eq "==>" ? 0 : 1;
     my $end       = !$isMinus ? $EndOrf + 3 : $EndOrf - 3;
@@ -8498,18 +8508,18 @@ sub FindStartAndStopForComplexGeneIdByHMM {
     my $all_possible_start = &DefineAllPossibleStart($full5);
     my $aliFrom            = length($full5) - length($this_prot);
     my $CloseStart         = &DefineCloseStart($all_possible_start,$aliFrom,$full5);
-    my $start_orf          = $1 if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*\d+\s*\]/;
+    # my $StartOrf          = $1 if $annot->get_IdORF() =~ m/\[\s*(\d+)\s*-\s*\d+\s*\]/;
 
     my $comment = "";
     if ($CloseStart == $aliFrom && !$all_possible_start->{$CloseStart}) {
         my $SimiStart = $start;
-        $start        = $start_orf;
+        $start        = $StartOrf;
         $comment      = "No ATG or GTG start codon at $SimiStart and HMMmatch = $HMMmatch";
     }
     # A M or v was found after similarity beginning
     elsif ($CloseStart > $aliFrom) {
-        my $FirstStart = $direction eq "==>" ? $start_orf+($CloseStart*3)  : $start_orf-($CloseStart*3);
-           $start      = $start_orf;
+        my $FirstStart = $direction eq "==>" ? $StartOrf+($CloseStart*3)  : $StartOrf-($CloseStart*3);
+           $start      = $StartOrf;
         my $aa_start   = $all_possible_start->{$CloseStart}->{aa};
            $aa_start   = $aa_start eq "M" ? "ATG" : "GTG";
            $comment    = "First $aa_start found at $FirstStart HMMmatch = $HMMmatch";
@@ -8517,7 +8527,7 @@ sub FindStartAndStopForComplexGeneIdByHMM {
     }
     else {
         if ($aliFrom != $CloseStart) {
-            $start = $direction eq "==>" ? $start_orf+($CloseStart*3) : $start_orf-($CloseStart*3);
+            $start = $direction eq "==>" ? $StartOrf+($CloseStart*3) : $StartOrf-($CloseStart*3);
         }
     }
 
@@ -8554,7 +8564,7 @@ sub CreateAnnotCommentForHMM {
     my $ori  = $tab_name[1] || "";
     my $description        = $resume->get_Description();
     # Extract direction from description in `frame`
-    my ($contigname_b, $strand, $start_orf, $end_orf) = &ExtractInfoFromEslDescription($description, $pirmaster);
+    my ($contigname_b, $strand, $start_orf, $end_orf) = &ExtractInfoFromEslDescriptionOrIdOrf($description, $pirmaster);
     my $direction          = $strand != 1 ? "<==" : "==>";
     my $isMinus            = $direction eq "==>" ? 0 : 1;
 
@@ -8620,12 +8630,13 @@ sub GetSimilarityPos {
     my ($resume,$ali) = @_;
 
     my $description        = $resume->get_Description();
-    my $direction          = $description =~ m/REVERSE SENSE/ ? "<==" : "==>";
-    my ($start_orf,$EndOrf) = ($1,$2) if $description =~ m/\[\s*(\d+)\s*-\s*(\d+)\s*\]/;
+    my ($contigname, $strand, $startOrf, $endOrf) = &ExtractInfoFromEslDescriptionOrIdOrf($description, $pirmaster);
+    my $direction          = $strand != 1 ? "<==" : "==>";
+
     # Treat information of ali and initialize
     my ($aliFrom,$aliTo) = ($ali->get_aliFrom(),$ali->get_aliTo());
-    my $SimiStart = $direction eq "==>" ? $start_orf+(($aliFrom-1)*3) : $start_orf-(($aliFrom-1)*3);
-    my $SimiEnd   = $direction eq "==>" ? $start_orf+(($aliTo)*3)     : $start_orf-(($aliTo)*3);
+    my $SimiStart = $direction eq "==>" ? $startOrf+(($aliFrom-1)*3) : $startOrf-(($aliFrom-1)*3);
+    my $SimiEnd   = $direction eq "==>" ? $startOrf+(($aliTo)*3)     : $startOrf-(($aliTo)*3);
 
     return ($SimiStart,$SimiEnd);
 }
@@ -9609,7 +9620,7 @@ sub GetAaAcceptedStartCodon {
     return $aa_accepted_start;
 }
 
-sub ExtractInfoFromEslDescription {
+sub ExtractInfoFromEslDescriptionOrIdOrf {
     my ($description, $pirmaster) = @_;
 
     my $contigname    = ($description =~ m/source=(\w+)/) ? $1 : "Unknown contig name";
