@@ -3760,6 +3760,7 @@ sub AnnotateMiniExonsByHMM {
 
                ($IntronPosSub,$LenAdj_p,$LenAdj_n) = &AdjustLengthIfGapInAllHomologous($Percent,$IntronPosSub,$LenAdj_p,$LenAdj_n,$Exon_p,$Exon_n);
             my ($SubPercent,$ExonAli)              = &DefineSeqAndAliOfResearchExon($Percent,$SubAliHomo,$IntronPosSub,$LenAdj_p,$LenAdj_n);
+            next if !$ExonAli;
 
             my ($Seq_p,$Seq_n) = &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"deconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
             if ($Seq_n eq "") {
@@ -3783,8 +3784,8 @@ sub AnnotateMiniExonsByHMM {
 
             # If no Hyp exons was return
             if (scalar(@$ListHypExons) == 0) {
-              &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"reconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
-              next;
+                &AdjustExonsIntron($Intron,$Exon_p,$Exon_n,$LenAdj_p,$LenAdj_n,"reconstruct",$isMinus,$UseSeq,$Dash_p,$Dash_n);
+                next;
             }
 
             # Add score for splice site
@@ -4522,7 +4523,7 @@ sub DefineSeqAndAliOfResearchExon {
     my $end   = $intron_pos_sub + $len_adj_n;
     my $sub_percent  = [];
       @$sub_percent  = @$percent[$start..$end];
-    my $sub_align    = $sub_ali_homo->slice($start + 1, $end + 1);
+    my $sub_align    = ($start + 1 >= 0 ) ? $sub_ali_homo->slice($start + 1, $end + 1) : undef;
 
     return ($sub_percent,$sub_align);
 }
@@ -5147,11 +5148,11 @@ sub AddMiniExon {
     $SecondIntron_type =~ s/,$//;
     my $StartSecondIntron = $EndNewExon    + $AdjStart;
     my $EndSecondIntron   = $StartNextExon + $AdjEnd;
-    my $SecondIntron = new PirObject::Intron ( start   => $StartSecondIntron,
-                                              end      => $EndSecondIntron,
-                                              strand   => $strand,
-                                              idbyRNAw => $APC_SecondIntron,
-                                              type     => $SecondIntron_type);
+    my $SecondIntron      = new PirObject::Intron ( start    => $StartSecondIntron,
+                                                    end      => $EndSecondIntron,
+                                                    strand   => $strand,
+                                                    idbyRNAw => $APC_SecondIntron,
+                                                    type     => $SecondIntron_type);
 
     splice(@$Introns, $i, 1);
     splice(@$Introns, $i, 0, $FirstIntron,$SecondIntron);
