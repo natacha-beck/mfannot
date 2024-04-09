@@ -507,9 +507,9 @@ $step += 1;
 &AnnotateMfFromHYPPROTSArray;
 
 # Adjust intronic boundaries with rules for type I and type II
-print "$step) Adjust intron boundaries...\n";
-$step += 1;
-&Adjust_all_intronic_junctions;
+# print "$step) Adjust intron boundaries...\n";
+# $step += 1;
+# &Adjust_all_intronic_junctions;
 
 print "$step) Identify start codons; identify gene fusions...\n";
 $step += 1;
