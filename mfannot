@@ -507,9 +507,9 @@ $step += 1;
 &AnnotateMfFromHYPPROTSArray;
 
 # Adjust intronic boundaries with rules for type I and type II
-# print "$step) Adjust intron boundaries...\n";
-# $step += 1;
-# &Adjust_all_intronic_junctions;
+print "$step) Adjust intron boundaries...\n";
+$step += 1;
+&Adjust_all_intronic_junctions;
 
 print "$step) Identify start codons; identify gene fusions...\n";
 $step += 1;
@@ -6621,6 +6621,7 @@ sub CheckForCorrespondance {
         push (@new_aa, $CODON_TABLE->{$new_codon} );  # undef is OK here
         my $old_codon = substr($old_substring,$sub_start_pos,3);
         push (@old_aa, $CODON_TABLE->{$old_codon} );  # undef is OK here
+        return undef if $CODON_TABLE->{$new_codon} eq "*";
     }
 
     my $score_aa = 0;
