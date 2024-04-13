@@ -450,12 +450,12 @@ my $step        = 1;
 if ($LVL_MOT != 1) {
 # Run the programm step by, to know the right step
 # Esl-translate running, generate ORFS
-print "$step) Translate (esl)...\n";
+print "$step) Translate (esl-translate)...\n";
 $step += 1;
 &RunEslTranslate;
 
 # Blast the esl-translate result with the blast
-print "$step) Blast (vs esl-translate)...\n";
+print "$step) Blast...\n";
 $step += 1;
 &BlastEslTranslateVSGene;
 
@@ -4042,7 +4042,6 @@ sub WhichPartWellId {
 sub GetProteinSequenceAndIntronsPos {
     my ($exons,$introns,$seq,$hypprot) = @_;
 
-    my $name         = $hypprot->get_name();
     my $dna_sequence = "";
     my $length_tot   = 0;
 
@@ -4069,8 +4068,6 @@ sub GetProteinSequenceAndIntronsPos {
         my $end_pos       = int($length_tot/3);
         my $intron_phase  = $length_tot % 3;
 
-
-        # Set intron extra info
         my $intron = $introns->[$i];
         $intron->set_intronpos($end_pos)  if defined($intron);
         $intron->set_phase($intron_phase) if defined($intron);
@@ -5398,7 +5395,8 @@ sub AnnotateMfFromHYPPROTSArray {
                                                          direction    => $arrow,
                                                          startline    => $start_line,
                                                          endline      => $end_line,
-                                                         introntype   => $type
+                                                         introntype   => $type,
+                                                         phase        => $intron->get_phase(),
                                                         );
             my $I_startline = $annot->get_startline();
 
@@ -6233,7 +6231,7 @@ sub Adjust_all_intronic_junctions {
         }
     }
 
-    #Adjust intron type II
+    # Adjust intron type II
     foreach my $intron (@introns_info) {
         my ($contig,$annot,$seq,$use_seq) = @$intron;
 
@@ -6318,7 +6316,7 @@ sub Adjust_TypeII {
     my $name_of_gene = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
     my ($start_pos,$end_pos) = ($isMinus ? ((length($use_seq) + 1 - $a_start),(length($use_seq) + 1 - $a_end)) : ($a_start,$a_end));
 
-    my $phase             = &WhichPhase($annot, $num_intron, $contig);
+    my $phase             = $annot->get_phase() || 0;
     my $annot_who_overlap = &WhatOverlapsThis($a_start,$a_end,$contig);
 
     # View for previous and next exons
@@ -6382,7 +6380,7 @@ sub Add_splicescore {
     my $name_of_gene = $1 if ($a_startline =~ m#;\s*[gG]-(\S+)\s+(==>|<==)\s*start#);
     my ($start_pos,$end_pos) = ($isMinus ? ((length($use_seq) + 1 - $a_start),(length($use_seq) + 1 - $a_end)) : ($a_start,$a_end));
 
-    my $phase = &WhichPhase($annot, $num_intron, $contig);
+    my $phase             = $annot->get_phase() || 0;
     my $annot_who_overlap = &WhatOverlapsThis($a_start,$a_end,$contig);
 
     # View for previous and next exons
@@ -6404,14 +6402,14 @@ sub Add_splicescore {
             my $scores   = undef;
 
             next if (($previous_exon_length + $adjust_start_pos) <= 5 && $key ne "0,0");
-            next if (($next_exon_length - $adjust_end_pos) <= 5 && $key ne "0,0");
+            next if (($next_exon_length - $adjust_end_pos)       <= 5 && $key ne "0,0");
 
              my $score_nt = &ScoreNtLTypeI($use_seq,$start_pos,$adjust_start_pos)
                           + &ScoreNtRTypeI($use_seq,$end_pos,$adjust_start_pos);
 
             # $scores is a ref to quintuplet ($score_nt,$score_aa,abs($adjust_start),$adjust_start,$adjust_end) or undef if adjustment is invalid
-            $scores = &CheckForCorrespondance($phase, $start_pos, $end_pos, $use_seq, $key,$score_nt,$annot);
-            push (@tab_scores, $scores ) if defined $scores;
+            $scores = &CheckForCorrespondance($phase, $start_pos, $end_pos, $use_seq, $key, $score_nt, $annot);
+            push (@tab_scores, $scores) if defined $scores;
         }
     }
 
@@ -6560,9 +6558,9 @@ sub CheckForCorrespondance {
     my ($old_substring1,$old_substring2) = ("","");
     my ($new_substring1,$new_substring2) = ("","");
 
-    my $comp_phase     = $phase == 0 ? 0 : 3-$phase;
+    my $comp_phase     = $phase == 0 ? 0 : 3 - $phase;
     my $new_phase      = ($phase + $adjust_start) % 3;
-    my $comp_new_phase = $new_phase == 0 ? 0 : 3-$new_phase;
+    my $comp_new_phase = $new_phase == 0 ? 0 : 3 - $new_phase;
 
     if ($adjust_start <= 0) {
         my $from_old = $start_pos + $adjust_start - 1 - $new_phase;
@@ -6621,7 +6619,6 @@ sub CheckForCorrespondance {
         push (@new_aa, $CODON_TABLE->{$new_codon} );  # undef is OK here
         my $old_codon = substr($old_substring,$sub_start_pos,3);
         push (@old_aa, $CODON_TABLE->{$old_codon} );  # undef is OK here
-        return undef if $CODON_TABLE->{$new_codon} eq "*";
     }
 
     my $score_aa = 0;
@@ -6629,7 +6626,7 @@ sub CheckForCorrespondance {
         my $old_aa    = $old_aa[$i] || "X";
         my $new_aa    = $new_aa[$i] || "X";
         $score_aa += $matrix->get_entry($old_aa,$new_aa);
-        return undef if $score_aa < 0;
+        return undef if $score_aa < 0 || $new_aa eq "*";
     }
 
     $score_aa = $score_aa / (@new_aa || 1);
@@ -9148,26 +9145,6 @@ sub OverlappingRegions {
     # Test for overlap again, new situation
     return 1 if ! ($end1 < $start2 || $start1 > $end2);
     return 0; # really, no overlap
-} # End sub
-
-sub WhichPhase {
-    # In order to know the phase of the intron
-    my ($annot,$num_intron,$contig) = @_;
-
-    my $annot_who_overlap = &WhatOverlapsThis($annot->startpos(),$annot->endpos(),$contig);
-
-    my $nb_nt = 0;     # Length of all exon before the intron who studies
-    foreach my $annotation_who_overlap (@$annot_who_overlap){
-        foreach my $feature_who_overlap (@$annotation_who_overlap) {
-            my $feature_min = @$feature_who_overlap[0];
-            my $feature_max = @$feature_who_overlap[1];
-            my $feature     = @$feature_who_overlap[2];
-            next if !($feature->get_startline() =~ m#;\s+G-.+E(\d+).+#);
-            my $number = $1 if $feature->get_startline() =~ m#;\s+G-.+E(\d+).+#;
-            $nb_nt += abs($feature_max - $feature_min + 1 ) if $1 <= $num_intron;
-        } # End foreach $feature_who_overlap
-    } # End foreach $annotation_who_overlap
-    my $phase = $nb_nt % 3 ;
 } # End sub
 
 sub Length_annot {
