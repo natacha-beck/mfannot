@@ -6264,7 +6264,7 @@ sub Adjust_all_intronic_junctions {
         next if !$adjust_info;
         my ($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus) = @$adjust_info;
 
-        my $a_splicescore = $annot->splicescore();
+        my $a_splicescore = $annot->splicescore() || 0;
         next if $a_splicescore < 19;
         &AdjustBoundaries($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$annotation,$isMinus,$contig);
         $intron->[1] = undef; # This intron is done
@@ -6501,6 +6501,7 @@ sub AdjustBoundaries {
     my ($tab_scores,$name_intron,$num_intron,$annot_who_overlap,$feature_intron,$isMinus,$contig) = @_;
 
     my ($adjust_start,$adjust_end) = ($tab_scores->[0]->[3],$tab_scores->[0]->[4]);
+    return if !$adjust_start || !$adjust_end;
     my $previous_exon_name         = $name_intron."-E".$num_intron;
     my $next_exon_name             = $name_intron."-E".($num_intron+1);
 
