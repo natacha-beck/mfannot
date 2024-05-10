@@ -2570,13 +2570,13 @@ sub FindExonsInHypProtArray {
         my $info = $PROT_FOR_EXONERATE[$i]; # table with values for each prot
         my ($name, $contigname, $protein, $strand, $homologous, $namefusiongene, $origine, $ORF_start_end) = @$info;
 
-        my ($protein_length,$dna_seq,$input_prot,$contig,$ExonerateReoprts) = &RunExonerate($i);
+        my ($protein_length,$dna_seq,$input_prot,$contig,$ExonerateReports) = &RunExonerate($i);
 
         # Group Exonerate report
         my $overlappe_authorized = ((5*$protein_length)/100);
-        my $grouped_reports      = &SortAndGroupC4Report($ExonerateReoprts,$overlappe_authorized,$info);
+        my $grouped_reports      = &SortAndGroupC4Report($ExonerateReports,$overlappe_authorized,$info);
 
-         # Push information about the new exon
+        # Push information about the new exon
         for (my $group_n=0; $group_n < @$grouped_reports; $group_n++) {
             my $group = @$grouped_reports[$group_n];
             my @exon_start_end = ();                                  # Tab with information about start and end of all exons present in Exonerte Output
@@ -2764,6 +2764,7 @@ sub FindExonsInHypProtArray {
                     my $start       = !$isMinus ? $dnastart + $modulo_3 : $dnastart - $modulo_3;
                     my $nt_seq      = &Get_nt_seq($dna_seq, $start, $dnaend, $isMinus);
                     my $aa_seq      = &TranslateInProt($nt_seq);
+
                     # Get position of * if any in $aa_seq
                     my $pos_stop    = index($aa_seq, "*");
                     # Sequence should be shorten at the first * found
@@ -2788,6 +2789,7 @@ sub FindExonsInHypProtArray {
                                                        exoscore        => $exoscore,
                                                        frameshiftsize  => $frameshift_size,
                                                       );
+
                 push (@$hypprotexonarray, $hypprotexon);
             }
 
@@ -2947,18 +2949,18 @@ sub RunExonerate {
 
     my $flobj = new PirObject::ExonerateOutput();
     $flobj->FillFeaturesFromTextOutput(\@exonerate_tab);
-    my $ExonerateReoprts = $flobj->report;   # One report contain information about one C4 section present in exonerate Output
+    my $ExonerateReports = $flobj->report;   # One report contain information about one C4 section present in exonerate Output
 
-    return ($protein_length,$dna_seq,$input_prot,$contig,$ExonerateReoprts);
+    return ($protein_length,$dna_seq,$input_prot,$contig,$ExonerateReports);
 }
 
 sub SortAndGroupC4Report {
-    my ($ExonerateReoprts,$OV_authorized,$info) = @_;
+    my ($ExonerateReports,$OV_authorized,$info) = @_;
     my $name           = $info->[0];
 
 
     my $grouped_reports      = [];
-    foreach my $ER (@$ExonerateReoprts) {
+    foreach my $ER (@$ExonerateReports) {
         if ($ER->get_raw_score() >= 200) {
             push(@$grouped_reports,[$ER]);
         } else {
@@ -3294,9 +3296,9 @@ sub CheckStopCodonInProtein {
             next if $i == scalar(@$exons) - 1; # We are in the last exon
             &AdjustExonIntronInfoIfStopCodon($exon, $i, $introns, $aa_seq, $nt_seq, $isMinus);
         }
+        &AdjustExonIntronInfoIfStopCodonInInterAA($exons, $introns, $isMinus);
     }
 }
-
 
 sub AdjustExonIntronInfoIfStopCodon {
     my ($exon, $i, $introns, $aa_seq, $nt_seq, $isMinus) = @_;
@@ -3309,8 +3311,20 @@ sub AdjustExonIntronInfoIfStopCodon {
     my $last_stop_left_idx   = rindex($left_side_aa, '*');
        $last_stop_left_idx   = $last_stop_left_idx == -1 ? 0 : $last_stop_left_idx + 1;
 
+    # In case of rs_initial_stop_codon,increase the last_stop_left_idx by the number of stop codon
+    my $right_side_aa = substr($aa_seq, $middle);
+    my $num_rs_initial_stop_codon = 0;
+    for (my $i = 0; $i < length($right_side_aa); $i++) {
+        last if substr($right_side_aa, $i, 1) ne '*';
+        $num_rs_initial_stop_codon++;
+    }
+
+    $last_stop_left_idx += $num_rs_initial_stop_codon;
+
+    $middle += $num_rs_initial_stop_codon;
+    $right_side_aa        = substr($aa_seq, $middle);
+
     # Right_side aa
-    my $right_side_aa        = substr($aa_seq, $middle);
     my $first_stop_right_idx = index($right_side_aa, '*');
        $first_stop_right_idx = $first_stop_right_idx == -1 ? length($aa_seq) : ($middle + $first_stop_right_idx);
 
@@ -3385,61 +3399,45 @@ sub AdjustExonIntronInfoIfStopCodon {
     $next_intron->set_intronpos($new_next_intron_pos);
 }
 
+sub AdjustExonIntronInfoIfStopCodonInInterAA {
+    my ($exons, $introns, $isMinus) = @_;
 
+    # Iterate over each exon
+    my $full_nt_seq = "";
+    for (my $i = 0; $i < scalar(@$exons); $i++) {
+        my $exon        = $exons->[$i];
+        my $nt_seq      = $exon->get_ntsequence();
+        my $prev_nt_seq = $full_nt_seq;
+        $full_nt_seq   .= $nt_seq;
+        my $full_aa_seq = &TranslateInProt($full_nt_seq);
 
-sub SimpleAdjustExonIntronInfoIfStopCodon_BK {
-    my ($exon, $i, $introns, $aa_seq, $nt_seq, $first_stop, $last_stop, $isMinus) = @_;
+        next if $full_aa_seq !~ /\*/; # No stop codon in this exon
+        # if last exon check the full_aa_seq without the last char
+        next if $i == scalar(@$exons) - 1 && substr($full_aa_seq, 0, -1) !~ /\*/;
 
-    my $is_right_side_stop = 1 if $first_stop > length($aa_seq)/2;
+        while ($full_aa_seq =~ /\*/) {
+            my $new_nt_seq  = substr($nt_seq, 3, length($nt_seq));
+               $full_nt_seq = $prev_nt_seq . $new_nt_seq;
+            my $new_aa_seq  = &TranslateInProt($full_nt_seq);
 
-    # Adjust exon aa sequence
-    my $new_aa_seq = $is_right_side_stop ? substr($aa_seq, 0, $first_stop) :
-                                           substr($aa_seq, $last_stop + 1);
-    $exon->set_aasequence($new_aa_seq);
-
-    # Adjust exon nt sequence
-    my $new_nt_seq = $is_right_side_stop ? substr($nt_seq, 0, (($first_stop * 3) + $exon->get_endingphase()) - 3) :
-                                           substr($nt_seq, (($last_stop * 3)     + $exon->get_endingphase()) + 3);
-    $exon->set_ntsequence($new_nt_seq);
-
-    my $diff_nt_exon_length = length($new_nt_seq) - length($nt_seq);
-    my $diff_aa_exon_length = length($aa_seq) - length($new_aa_seq);
-
-    if ($is_right_side_stop) {
-        # Adjust exon stop
-        my $new_nt_end = !$isMinus ? $exon->get_dnaend() - $diff_nt_exon_length - $exon->get_startingphase():
-                                     $exon->get_dnaend() + $diff_nt_exon_length + $exon->get_startingphase();
-        $exon->set_dnaend($new_nt_end);
-
-        # Adjust exon protend
-        my $new_prot_end        = $exon->get_protend() - $diff_aa_exon_length;
-        $exon->set_protend($new_prot_end);
-
-        # Adjust the position of the next intron
-        my $next_intron = $introns->[$i];
-        my $new_intron_start = !$isMinus ? $exon->get_dnaend() - 1 : $exon->get_dnaend() + 1;
-        $next_intron->set_start($new_intron_start);
-
-        # Adjust the position of the next intron
-        my $new_intron_pos = $next_intron->get_intronpos() - (length($aa_seq) - length($new_aa_seq));
-        $next_intron->set_intronpos($new_intron_pos);
-    } else {
-        my $new_nt_start = !$isMinus ? $exon->get_dnastart() + $diff_nt_exon_length + $exon->get_endingphase():
-                                       $exon->get_dnastart() - $diff_nt_exon_length - $exon->get_endingphase();
-        $exon->set_dnastart($new_nt_start);
-
-        # Adjust exon protstart
-        my $new_prot_start      = $exon->get_protstart() + $diff_aa_exon_length;
-        $exon->set_protstart($new_prot_start);
-
-        # Adjust the position of the previous intron
-        my $previous_intron = $introns->[$i-1];
-        my $new_intron_end  = !$isMinus ? $exon->get_dnastart() + 1 : $exon->get_dnastart() - 1;
-        $previous_intron->set_end($new_intron_end);
-
-        # Adjust the position of the previous intron
-        my $new_intron_pos = $previous_intron->get_intronpos() + (length($aa_seq) - length($new_aa_seq));
-        $previous_intron->set_intronpos($new_intron_pos);
+            if ($new_aa_seq !~ /\*/) {
+                # Adjsut the nt sequence
+                $exon->set_ntsequence($new_nt_seq);
+                # Adjust the aa sequence
+                my $aa_seq     = $exon->get_aasequence();
+                my $new_aa_seq = substr($full_aa_seq, 1, length($aa_seq));
+                $exon->set_aasequence($new_aa_seq);
+                # Adjust the start of the exon
+                my $new_nt_start = !$isMinus ? $exon->get_dnastart() + 3
+                                             : $exon->get_dnastart() - 3;
+                $exon->set_dnastart($new_nt_start);
+                # Adjust the end of previous intron
+                my $previous_intron = @$introns[$i-1];
+                my $new_intron_end = !$isMinus ? $exon->get_dnastart() - 1
+                                               : $exon->get_dnastart() + 1;
+                last;
+            }
+        }
     }
 }
 
