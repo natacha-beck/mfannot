@@ -1885,7 +1885,7 @@ sub AddCommentForStart {
     my $diff       = int($closest_start) - int($new_start);
     my $up_or_down = $diff < 0 ? "downstream" : "upstream";
         $diff      = abs($diff);
-    my $warning    = $diff != 0 ? " Start was found $diff positions $up_or_down, compared to close reference protein" : "";
+    my $warning    = $diff != 0 ? " Start codon $diff position(s) downstream, compared to reference protein" : "";
 
     if ((ref($hypprot) && $hypprot->isa('PirObject::AnnotPair'))) {
         $warning     .= "$extra_comment" if $extra_comment ne "";
@@ -1985,7 +1985,7 @@ sub ChangeAnnotVal {
 sub CommentForAltStart {
     my ($all_possible_start,$simi_start_in_aa,$start_orf,$length_full5,$isMinus,$seq) = @_;
 
-    my $comment = "No proper translation codon identified";
+    my $comment = "No translation codon identified";
 
     # Comment the first upstream ATG
     my $filtered_upstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,$simi_start_in_aa, 1);
@@ -2000,7 +2000,7 @@ sub CommentForAltStart {
     my $first_downstream_atg                   = (sort { $a <=> $b } keys %$filtered_downstream_ATG_possible_start)[0];
     if (defined $first_downstream_atg) {
         my $downstream_atg_pos = &StartPosBasedOnOrf($start_orf, $first_downstream_atg, $isMinus,$seq);
-        $comment              .= ", first downstream ATG at position $downstream_atg_pos";
+        $comment              .= ", first ATG at position $downstream_atg_pos";
     }
 
     # Comment first upstream alternative start codon (gc=...) at position Z
