@@ -3296,7 +3296,7 @@ sub CheckStopCodonInProtein {
             next if $i == scalar(@$exons) - 1; # We are in the last exon
             &AdjustExonIntronInfoIfStopCodon($exon, $i, $introns, $aa_seq, $nt_seq, $isMinus);
         }
-        &AdjustExonIntronInfoIfStopCodonInInterAA($exons, $introns, $isMinus);
+        &AdjustExonIntronInfoIfStopCodonInInterAA($exons, $introns, $isMinus) if @$introns > 0;
     }
 }
 
