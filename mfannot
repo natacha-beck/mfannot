@@ -1885,7 +1885,7 @@ sub AddCommentForStart {
     my $diff       = int($closest_start) - int($new_start);
     my $up_or_down = $diff < 0 ? "downstream" : "upstream";
         $diff      = abs($diff);
-    my $warning    = $diff != 0 ? " Start was found $diff positions $up_or_down, compared to close reference protein" : "";
+    my $warning    = $diff != 0 ? " Start codon $diff position(s) downstream, compared to reference protein" : "";
 
     if ((ref($hypprot) && $hypprot->isa('PirObject::AnnotPair'))) {
         $warning     .= "$extra_comment" if $extra_comment ne "";
@@ -1985,14 +1985,14 @@ sub ChangeAnnotVal {
 sub CommentForAltStart {
     my ($all_possible_start,$simi_start_in_aa,$start_orf,$length_full5,$isMinus,$seq) = @_;
 
-    my $comment = "No proper translation codon identified";
+    my $comment = "No translation codon identified";
 
     # Comment the first upstream ATG
     my $filtered_upstream_ATG_possible_start = &FilterAllPossibleStart($all_possible_start,0,$simi_start_in_aa, 1);
     my $first_upstream_atg = (sort { $a <=> $b } keys %$filtered_upstream_ATG_possible_start)[-1];
     if (defined $first_upstream_atg) {
         my $upstream_atg_pos = &StartPosBasedOnOrf($start_orf, $first_upstream_atg, $isMinus,$seq);
-        $comment            .= ", first upstream ATG at position $upstream_atg_pos";
+        $comment            .= ", first ATG at position $upstream_atg_pos";
     }
 
     # Comment the first downstream ATG
@@ -2000,7 +2000,7 @@ sub CommentForAltStart {
     my $first_downstream_atg                   = (sort { $a <=> $b } keys %$filtered_downstream_ATG_possible_start)[0];
     if (defined $first_downstream_atg) {
         my $downstream_atg_pos = &StartPosBasedOnOrf($start_orf, $first_downstream_atg, $isMinus,$seq);
-        $comment              .= ", first downstream ATG at position $downstream_atg_pos";
+        $comment              .= ", first ATG at position $downstream_atg_pos";
     }
 
     # Comment first upstream alternative start codon (gc=...) at position Z
@@ -2764,7 +2764,6 @@ sub FindExonsInHypProtArray {
                     my $start       = !$isMinus ? $dnastart + $modulo_3 : $dnastart - $modulo_3;
                     my $nt_seq      = &Get_nt_seq($dna_seq, $start, $dnaend, $isMinus);
                     my $aa_seq      = &TranslateInProt($nt_seq);
-
                     # Get position of * if any in $aa_seq
                     my $pos_stop    = index($aa_seq, "*");
                     # Sequence should be shorten at the first * found
@@ -2789,7 +2788,6 @@ sub FindExonsInHypProtArray {
                                                        exoscore        => $exoscore,
                                                        frameshiftsize  => $frameshift_size,
                                                       );
-
                 push (@$hypprotexonarray, $hypprotexon);
             }
 
@@ -3296,9 +3294,10 @@ sub CheckStopCodonInProtein {
             next if $i == scalar(@$exons) - 1; # We are in the last exon
             &AdjustExonIntronInfoIfStopCodon($exon, $i, $introns, $aa_seq, $nt_seq, $isMinus);
         }
-        &AdjustExonIntronInfoIfStopCodonInInterAA($exons, $introns, $isMinus) if @$introns > 0;
+        #&AdjustExonIntronInfoIfStopCodonInInterAA($exons, $introns, $isMinus);
     }
 }
+
 
 sub AdjustExonIntronInfoIfStopCodon {
     my ($exon, $i, $introns, $aa_seq, $nt_seq, $isMinus) = @_;
