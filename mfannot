@@ -3355,8 +3355,8 @@ sub AdjustExonIntronInfoIfStopCodon {
 
     # Adjust exon stop
     my $rm_left_size_nt = (length($aa_seq) - ($first_stop_right_idx - $last_stop_left_idx)) * 3;
-    my $new_nt_end      = !$isMinus ? $exon->get_dnastart() + length($new_nt_seq) - 1 + $exon->get_endingphase() - 3
-                                    : $exon->get_dnastart() - length($new_nt_seq) + 1 - $exon->get_endingphase() + 3;
+    my $new_nt_end      = !$isMinus ? $exon->get_dnastart() + length($new_nt_seq) - 1 + $exon->get_endingphase()
+                                    : $exon->get_dnastart() - length($new_nt_seq) + 1 - $exon->get_endingphase();
     $exon->set_dnaend($new_nt_end);
 
     #######################################################
