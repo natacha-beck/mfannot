@@ -4303,10 +4303,10 @@ sub DefineAdjustIntron {
     # Letters is used for when we have a difference between hypprot and homologous
     my $length       = length($string);
 
-    my $left         = substr($string,0,$intron_pos+1);
+    my $left         = substr($string,0,$intron_pos);
     my $one_aa_left  = substr($string,$intron_pos,1);
 
-    my $right        = substr($string,$intron_pos+1);
+    my $right        = substr($string,$intron_pos);
     my $one_aa_right = substr($string,$intron_pos+1,1);
 
     my $missing_left  = &DefineMissingLeft($left);
