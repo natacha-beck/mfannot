@@ -3271,7 +3271,7 @@ sub CheckStopCodonInProtein {
         my $introns = $hypprot->get_introns();
 
         my $name = $hypprot->get_name();
-        print "-----------------------------------Hypprot name:", $name, "-----------------------------------\n";
+        # print "-----------------------------------Hypprot name:", $name, "-----------------------------------\n";
 
         my $seq     = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if scalar(@$introns) > 0;
         my $isMinus = ($hypprot->get_strand() == 1 ? 0 : 1);
@@ -3325,8 +3325,6 @@ sub AdjustExonIntronInfoIfStopCodon {
     # Right_side aa
     my $first_stop_right_idx = index($right_side_aa, '*');
        $first_stop_right_idx = $first_stop_right_idx == -1 ? length($aa_seq) : ($middle + $first_stop_right_idx);
-
-    print Data::Dumper->Dump([$aa_seq], ['aa_seq']);
 
     #######################################################
     # Adjust Amino acid sequence to remove all stop codon #
@@ -3397,6 +3395,8 @@ sub AdjustExonIntronInfoIfStopCodon {
             $previous_intron->set_end($new_intron_end);
 
             # Adjust the position of the previous intron
+            # OOOOOOOOOOOOOOOOOOOOOOOOO
+            # my $new_previous_intron_pos = $previous_intron->get_intronpos() + $last_stop_left_idx;
             my $new_previous_intron_pos = $previous_intron->get_intronpos() + $last_stop_left_idx;
             $previous_intron->set_intronpos($new_previous_intron_pos);
         }
@@ -3420,6 +3420,8 @@ sub AdjustExonIntronInfoIfStopCodon {
         #######################################################
 
         # Adjust the position of the previous intron
+        # OOOOOOOOOOOOOOOOOOOOOOOOO
+        # my $new_previous_intron_pos = $previous_intron->get_intronpos() + $last_stop_left_idx;
         my $new_previous_intron_pos = $previous_intron->get_intronpos() + $last_stop_left_idx;
         $previous_intron->set_intronpos($new_previous_intron_pos);
 
@@ -3723,6 +3725,7 @@ sub AnnotateMiniExonsByHMM {
         my ($ThisProt,$Align,$PP,$PercentId,$AliSeq,$protaln) = ("","","","","","");
 
         INTRON: for (my $i = 0; $i < @$Introns; $i++) {
+            # print "-----------------------------------Intron $i-----------------------------------\n";
             my $intron    = $Introns->[$i];
             my $ShortName = "${Name}_$Flag";
 
@@ -4252,6 +4255,31 @@ sub MakeSubAlignment {
     return ($SubAliHomo,$IntronPosSub,$Sub_PP,$Sub_Ali)
 }
 
+sub MakeSubAlignment_wip_13 {
+    # XXXXXXXXXXXXXXXXXXXXXXXXXXXXX why I have a difference between wip13 and 28_05
+    # In order to make sub-alignment
+    my ($align,$hypprot_seq,$IntronPosAli,$PreviousExon,$NextExon,$PP,$AliSeq) = @_;
+
+    my ($PreviousExon_start,$PreviousExon_End) = ($PreviousExon->get_protstart(),$PreviousExon->get_protend());
+    my ($NextExon_start,$NextExon_End)         = ($NextExon->get_protstart()    ,$NextExon->get_protend());
+
+    # my $IntronPosSub = $PreviousExon_End - $PreviousExon_start + 1;
+    my $IntronPosSub = $PreviousExon_End - $PreviousExon_start + 1;
+
+    my $start        = $IntronPosAli - $IntronPosSub + 1;
+       $start        = 1 if $start < 1;
+
+    my $num2         = $NextExon_End-$NextExon_start+1;
+    my $end          = $IntronPosAli + $num2;
+
+    my $SubAliHomo   = $align->slice($start, $end);
+    my $Len          = $end - $start + 1;
+    my $Sub_PP       = substr($PP, $start - 1,$Len);
+    my $Sub_Ali      = substr($AliSeq, $start - 1,$Len);
+
+    return ($SubAliHomo,$IntronPosSub,$Sub_PP,$Sub_Ali)
+}
+
 # Return 1 if the sequence around the intron is the same
 # between the closest species and the current species.
 sub SameSeqAroundExonIntronJunction {
@@ -4334,10 +4362,10 @@ sub DefineAdjustIntron {
     # Letters is used for when we have a difference between hypprot and homologous
     my $length       = length($string);
 
-    my $left         = substr($string,0,$intron_pos);
+    my $left         = substr($string,0,$intron_pos+1);
     my $one_aa_left  = substr($string,$intron_pos,1);
 
-    my $right        = substr($string,$intron_pos);
+    my $right        = substr($string,$intron_pos+1);
     my $one_aa_right = substr($string,$intron_pos+1,1);
 
     my $missing_left  = &DefineMissingLeft($left);
@@ -5189,8 +5217,10 @@ sub ReajustExonAndIntron {
     my $LenPref         = ( $isMinus ? -$BestSol->{"prefix"} :  $BestSol->{"prefix"});
     my $LenSuf          = ( $isMinus ?  $BestSol->{"suffix"} : -$BestSol->{"suffix"});
     my $strand          = ( $isMinus ? "-" : "+");
-    my $AdjStart        = ( $isMinus ?  -1 :  1);
-    my $AdjEnd          = ( $isMinus ?   1 : -1);
+    # my $AdjStart        = ( $isMinus ?  -1 :  1);
+    # my $AdjEnd          = ( $isMinus ?   1 : -1);
+    my $AdjStart        = 0;
+    my $AdjEnd          = 0;
 
     # Exons #
     # Adjust end of previous exon
