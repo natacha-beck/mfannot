@@ -3273,7 +3273,6 @@ sub CheckStopCodonInProtein {
         my $name = $hypprot->get_name();
         # print "-----------------------------------Hypprot name:", $name, "-----------------------------------\n";
 
-
         my $seq     = &GetProteinSequenceAndIntronsPos($exons,$introns,$seq,$hypprot) if scalar(@$introns) > 0;
         my $isMinus = ($hypprot->get_strand() == 1 ? 0 : 1);
 
@@ -3348,7 +3347,7 @@ sub AdjustExonIntronInfoIfStopCodon {
     # Adjust exon start and end sequence                  #
     #######################################################
 
-    # # Adjust exon start
+    # Adjust exon start
     my $new_nt_start    = !$isMinus ? $exon->get_dnastart() + ($last_stop_left_idx * 3)
                                     : $exon->get_dnastart() - ($last_stop_left_idx * 3);
     $exon->set_dnastart($new_nt_start);
@@ -3375,27 +3374,57 @@ sub AdjustExonIntronInfoIfStopCodon {
     # Adjust intron start and end                         #
     #######################################################
 
-    # Adjust the position of the next intron
-    my $next_intron = $introns->[$i];
-    my $new_intron_start = !$isMinus ? $exon->get_dnaend() - 1  : $exon->get_dnaend() + 1;
-    $next_intron->set_start($new_intron_start);
+    # Special case if we have only one intron
+    if (scalar(@$introns) == 1) {
+        # Adjust only start position of the intron
+        if ($i == 0) {
+            # Adjust the position of the next intron
+            my $next_intron      = $introns->[$i];
+            my $new_intron_start = !$isMinus ? $exon->get_dnaend() + 1  : $exon->get_dnaend() - 1;
+            $next_intron->set_start($new_intron_start);
 
-    # Adjust the position of the previous intron
-    my $previous_intron = $introns->[$i-1];
-    my $new_intron_end  = !$isMinus ? $exon->get_dnastart() + 1 : $exon->get_dnastart() - 1;
-    $previous_intron->set_end($new_intron_end);
+            # Adjust the position of the next intron
+            my $new_next_intron_pos = $next_intron->get_intronpos() + ($first_stop_right_idx - $last_stop_left_idx) - 1;
+            $next_intron->set_intronpos($new_next_intron_pos);
+        }
+        # Adjust only end position of the intron
+        if ($i == 1) {
+            # Adjust the ponsition of the previous intron
+            my $previous_intron = $introns->[$i-1];
+            my $new_intron_end  = !$isMinus ? $exon->get_dnastart() - 1 : $exon->get_dnastart() + 1;
+            $previous_intron->set_end($new_intron_end);
 
-    #######################################################
-    # Adjust position of previous and next intron         #
-    #######################################################
+            # Adjust the position of the previous intron
+            my $new_previous_intron_pos = $previous_intron->get_intronpos() + $last_stop_left_idx;
+            $previous_intron->set_intronpos($new_previous_intron_pos);
+        }
+    } else {
+        #######################################################
+        # Adjust intron start and end                         #
+        #######################################################
 
-    # Adjust the position of the previous intron
-    my $new_previous_intron_pos = $previous_intron->get_intronpos() + $last_stop_left_idx;
-    $previous_intron->set_intronpos($new_previous_intron_pos);
+        # Adjust the position of the next intron
+        my $next_intron      = $introns->[$i];
+        my $new_intron_start = !$isMinus ? $exon->get_dnaend() + 1  : $exon->get_dnaend() - 1;
+        $next_intron->set_start($new_intron_start);
 
-    # Adjust the position of the next intron
-    my $new_next_intron_pos = $next_intron->get_intronpos() + ($first_stop_right_idx - $last_stop_left_idx) - 1;
-    $next_intron->set_intronpos($new_next_intron_pos);
+        # Adjust the position of the previous intron
+        my $previous_intron = $introns->[$i-1];
+        my $new_intron_end  = !$isMinus ? $exon->get_dnastart() - 1 : $exon->get_dnastart() + 1;
+        $previous_intron->set_end($new_intron_end);
+
+        #######################################################
+        # Adjust position of previous and next intron         #
+        #######################################################
+
+        # Adjust the position of the previous intron
+        my $new_previous_intron_pos = $previous_intron->get_intronpos() + $last_stop_left_idx;
+        $previous_intron->set_intronpos($new_previous_intron_pos);
+
+        # Adjust the position of the next intron
+        my $new_next_intron_pos = $next_intron->get_intronpos() + ($first_stop_right_idx - $last_stop_left_idx) - 1;
+        $next_intron->set_intronpos($new_next_intron_pos);
+    }
 }
 
 sub AdjustExonIntronInfoIfStopCodonInInterAA {
@@ -3692,6 +3721,7 @@ sub AnnotateMiniExonsByHMM {
         my ($ThisProt,$Align,$PP,$PercentId,$AliSeq,$protaln) = ("","","","","","");
 
         INTRON: for (my $i = 0; $i < @$Introns; $i++) {
+            # print "-----------------------------------Intron $i-----------------------------------\n";
             my $intron    = $Introns->[$i];
             my $ShortName = "${Name}_$Flag";
 
@@ -4307,7 +4337,7 @@ sub DefineAdjustIntron {
     my $one_aa_left  = substr($string,$intron_pos,1);
 
     my $right        = substr($string,$intron_pos);
-    my $one_aa_right = substr($string,$intron_pos+1,1);
+    my $one_aa_right = substr($string,$intron_pos,1);
 
     my $missing_left  = &DefineMissingLeft($left);
     my $missing_right = &DefineMissingRight($right);
@@ -5160,6 +5190,9 @@ sub ReajustExonAndIntron {
     my $strand          = ( $isMinus ? "-" : "+");
     my $AdjStart        = ( $isMinus ?  -1 :  1);
     my $AdjEnd          = ( $isMinus ?   1 : -1);
+    # # OOOOOOOO
+    # my $AdjStart        = 0;
+    # my $AdjEnd          = 0;
 
     # Exons #
     # Adjust end of previous exon
